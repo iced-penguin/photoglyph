@@ -154,7 +154,9 @@ fn main() -> ExitCode {
                 &mut failed,
             );
         }
-        Command::Edit { target } => report(&target, usecase::edit(target.as_ref()), &mut failed),
+        Command::Edit { target } => {
+            report_silently(&target, usecase::edit(target.as_ref()), &mut failed)
+        }
     }
     if failed {
         ExitCode::from(2)
