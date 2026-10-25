@@ -104,7 +104,7 @@ pub fn clear(target: &Path, key: &str, tool: &impl SidecarStore) -> Result<Strin
         .map(|updated| if updated { "cleared" } else { "unchanged" }.into())
 }
 
-pub fn edit(target: &Path) -> Result<String, String> {
+pub fn edit(target: &Path) -> Result<(), String> {
     let sidecar = resolve_xmp_target(target)?;
     let editor = env::var("VISUAL")
         .ok()
@@ -119,7 +119,7 @@ pub fn edit(target: &Path) -> Result<String, String> {
         .status()
         .map_err(|error| format!("cannot start editor: {error}"))?;
     if status.success() {
-        Ok("editor exited successfully".into())
+        Ok(())
     } else {
         Err(format!("editor failed ({status})"))
     }
