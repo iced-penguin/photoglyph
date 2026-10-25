@@ -1,8 +1,9 @@
+use crate::port::{Selection, SidecarStore};
 use std::env;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Command;
 
 pub const DEFAULT_COMMENT: &str = "XMP-dc:Description";
 const EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "nef", "tif", "tiff", "dng"];
@@ -15,21 +16,7 @@ const BASIC_KEYS: &[&str] = &[
     "XMP-xmp:Rating",
     "XMP-photoshop:DateCreated",
 ];
-const INSTALL_HINT: &str = "exiftool not found. Install it and try again:
-  macOS:           brew install exiftool
-  Debian/Ubuntu:   sudo apt install libimage-exiftool-perl
-  other:           https://exiftool.org";
-
-pub fn ensure_exiftool() -> Result<(), String> {
-    match Command::new("exiftool").arg("-ver").output() {
-        Ok(out) if out.status.success() => Ok(()),
-        Ok(out) => Err(output_error(&out)),
-        Err(error) if error.kind() == ErrorKind::NotFound => Err(INSTALL_HINT.into()),
-        Err(error) => Err(format!("cannot run exiftool: {error}")),
-    }
-}
-
-pub fn export(image: &Path, force: bool) -> Result<String, String> {
+pub fn export(image: &Path, force: bool, tool: &impl SidecarStore) -> Result<String, String> {
     if !is_image(image) {
         return Err("export requires a supported image path".into());
     }
@@ -52,17 +39,9 @@ pub fn export(image: &Path, force: bool) -> Result<String, String> {
         ));
     }
     let temporary = temporary_sidecar(&sidecar);
-    let out = Command::new("exiftool")
-        .args(["-charset", "utf8", "-tagsFromFile"])
-        .arg(&image)
-        .arg("-o")
-        .arg(&temporary)
-        .arg(&image)
-        .output()
-        .map_err(|error| format!("cannot run exiftool: {error}"))?;
-    if !out.status.success() {
+    if let Err(error) = tool.export_to(&image, &temporary) {
         let _ = fs::remove_file(&temporary);
-        return Err(output_error(&out));
+        return Err(error);
     }
     if !temporary.is_file() {
         return Err("exiftool reported success but did not create an XMP sidecar".into());
@@ -92,10 +71,11 @@ pub fn show(
     basic: bool,
     verbose: bool,
     key: Option<&str>,
+    tool: &impl SidecarStore,
 ) -> Result<String, String> {
     let sidecar = resolve_xmp_target(target)?;
     if all {
-        return show_all(&sidecar, verbose);
+        return tool.read_properties(&sidecar, Selection::All, verbose);
     }
     let keys: Vec<&str> = match key {
         Some(key) => {
@@ -105,50 +85,22 @@ pub fn show(
         None if basic => BASIC_KEYS.to_vec(),
         None => vec![DEFAULT_COMMENT],
     };
-    if verbose {
-        let selectors: Vec<String> = keys.iter().map(|key| format!("-{key}")).collect();
-        let mut args = vec!["-G1", "-a"];
-        args.extend(selectors.iter().map(String::as_str));
-        return checked_text(run(&args, &sidecar)?);
-    }
-    let formats: Vec<String> = keys
-        .iter()
-        .map(|key| format!("{key}: ${{{key}}}"))
-        .collect();
-    let mut args = Vec::new();
-    for format in &formats {
-        args.extend(["-p", format]);
-    }
-    checked_text(run(&args, &sidecar)?)
+    tool.read_properties(&sidecar, Selection::Keys(&keys), verbose)
 }
 
-fn show_all(sidecar: &Path, verbose: bool) -> Result<String, String> {
-    if verbose {
-        return checked_text(run(&["-G1", "-a", "-XMP:All"], sidecar)?);
-    }
-    let text = checked_text(run(&["-args", "-G1", "-a", "-XMP:All"], sidecar)?)?;
-    Ok(text
-        .lines()
-        .map(|line| {
-            let line = line.strip_prefix('-').unwrap_or(line);
-            match line.split_once('=') {
-                Some((key, value)) => format!("{key}: {value}"),
-                None => line.to_string(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n"))
+pub fn set(
+    target: &Path,
+    key: &str,
+    value: &str,
+    tool: &impl SidecarStore,
+) -> Result<String, String> {
+    write_property(target, key, value, tool)
 }
 
-pub fn set(target: &Path, key: &str, value: &str) -> Result<String, String> {
-    write_property(target, key, value)
-}
-
-pub fn clear(target: &Path, key: &str) -> Result<String, String> {
+pub fn clear(target: &Path, key: &str, tool: &impl SidecarStore) -> Result<String, String> {
     validate_key(key)?;
     let sidecar = resolve_xmp_target(target)?;
-    let assignment = format!("-{key}^=");
-    run_mutation(&sidecar, &assignment)
+    tool.clear_property(&sidecar, key)
         .map(|updated| if updated { "cleared" } else { "unchanged" }.into())
 }
 
@@ -173,21 +125,16 @@ pub fn edit(target: &Path) -> Result<String, String> {
     }
 }
 
-fn write_property(target: &Path, key: &str, value: &str) -> Result<String, String> {
+fn write_property(
+    target: &Path,
+    key: &str,
+    value: &str,
+    tool: &impl SidecarStore,
+) -> Result<String, String> {
     validate_key(key)?;
     let sidecar = resolve_xmp_target(target)?;
-    let assignment = format!("-{key}={value}");
-    run_mutation(&sidecar, &assignment)
+    tool.write_property(&sidecar, key, value)
         .map(|updated| if updated { "updated" } else { "unchanged" }.into())
-}
-
-fn run_mutation(sidecar: &Path, assignment: &str) -> Result<bool, String> {
-    let out = run(&["-overwrite_original", assignment], sidecar)?;
-    if !out.status.success() {
-        return Err(output_error(&out));
-    }
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    Ok(stdout.contains("1 image files updated"))
 }
 
 /// Accepts an .xmp path or a bare basename (`photo` means `photo.xmp`); image paths are rejected.
@@ -288,31 +235,6 @@ fn is_xmp(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| ext.eq_ignore_ascii_case("xmp"))
-}
-
-fn run(args: &[&str], file: &Path) -> Result<Output, String> {
-    Command::new("exiftool")
-        .args(["-charset", "utf8"])
-        .args(args)
-        .arg(file)
-        .output()
-        .map_err(|error| format!("cannot run exiftool: {error}"))
-}
-
-fn checked_text(out: Output) -> Result<String, String> {
-    if !out.status.success() {
-        return Err(output_error(&out));
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim_end().to_string())
-}
-
-fn output_error(out: &Output) -> String {
-    let detail = String::from_utf8_lossy(&out.stderr).trim().to_string();
-    if detail.is_empty() {
-        format!("exiftool failed ({})", out.status)
-    } else {
-        detail
-    }
 }
 
 #[cfg(test)]
