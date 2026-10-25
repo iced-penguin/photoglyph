@@ -1,7 +1,10 @@
+mod exiftool;
 mod glob;
-mod meta;
+mod port;
+mod usecase;
 
 use clap::{Args, Parser, Subcommand};
+use port::SidecarStore;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -95,7 +98,8 @@ fn main() -> ExitCode {
             };
         }
     };
-    if let Err(error) = meta::ensure_exiftool() {
+    let exiftool = exiftool::ExifTool;
+    if let Err(error) = exiftool.ensure_available() {
         eprintln!("pg: {error}");
         return ExitCode::from(1);
     }
@@ -104,7 +108,11 @@ fn main() -> ExitCode {
     match cli.command {
         Command::Export { force, targets } => {
             for image in expand_all(&targets) {
-                report(image.display(), meta::export(&image, force), &mut failed);
+                report(
+                    image.display(),
+                    usecase::export(&image, force, &exiftool),
+                    &mut failed,
+                );
             }
         }
         Command::Show {
@@ -114,7 +122,8 @@ fn main() -> ExitCode {
         } => {
             let key = display.key.as_deref();
             for target in expand_all(&targets) {
-                let result = meta::show(&target, display.all, display.basic, verbose, key);
+                let result =
+                    usecase::show(&target, display.all, display.basic, verbose, key, &exiftool);
                 match result {
                     Ok(text) if text.is_empty() => {}
                     Ok(text) => println!("{text}"),
@@ -130,18 +139,22 @@ fn main() -> ExitCode {
             target,
             value,
         } => {
-            let key = property.key.as_deref().unwrap_or(meta::DEFAULT_COMMENT);
+            let key = property.key.as_deref().unwrap_or(usecase::DEFAULT_COMMENT);
             report_silently(
                 &target,
-                meta::set(target.as_ref(), key, &value),
+                usecase::set(target.as_ref(), key, &value, &exiftool),
                 &mut failed,
             );
         }
         Command::Clear { property, target } => {
-            let key = property.key.as_deref().unwrap_or(meta::DEFAULT_COMMENT);
-            report_silently(&target, meta::clear(target.as_ref(), key), &mut failed);
+            let key = property.key.as_deref().unwrap_or(usecase::DEFAULT_COMMENT);
+            report_silently(
+                &target,
+                usecase::clear(target.as_ref(), key, &exiftool),
+                &mut failed,
+            );
         }
-        Command::Edit { target } => report(&target, meta::edit(target.as_ref()), &mut failed),
+        Command::Edit { target } => report(&target, usecase::edit(target.as_ref()), &mut failed),
     }
     if failed {
         ExitCode::from(2)
