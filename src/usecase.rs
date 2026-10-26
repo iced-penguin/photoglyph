@@ -1,6 +1,5 @@
-use crate::port::{Selection, SidecarStore};
+use crate::port::{FileSystem, Selection, SidecarStore};
 use std::env;
-use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -16,12 +15,17 @@ const BASIC_KEYS: &[&str] = &[
     "XMP-xmp:Rating",
     "XMP-photoshop:DateCreated",
 ];
-pub fn export(image: &Path, force: bool, tool: &impl SidecarStore) -> Result<String, String> {
+pub fn export(
+    image: &Path,
+    force: bool,
+    tool: &impl SidecarStore,
+    filesystem: &impl FileSystem,
+) -> Result<String, String> {
     if !is_image(image) {
         return Err("export requires a supported image path".into());
     }
-    let image = canonical(image)?;
-    if let Some(collision) = find_stem_collision(&image)? {
+    let image = canonical(image, filesystem)?;
+    if let Some(collision) = find_stem_collision(&image, filesystem)? {
         if force {
             eprintln!(
                 "warning: sidecar basename is ambiguous with {}; proceeding because --force was specified",
@@ -32,28 +36,23 @@ pub fn export(image: &Path, force: bool, tool: &impl SidecarStore) -> Result<Str
         }
     }
     let sidecar = companion(&image);
-    if sidecar.exists() && !force {
+    if filesystem.exists(&sidecar) && !force {
         return Err(format!(
             "sidecar already exists: {}; use --force to replace it",
             sidecar.display()
         ));
     }
-    let temporary = temporary_sidecar(&sidecar);
+    let temporary = temporary_sidecar(&sidecar, filesystem);
     if let Err(error) = tool.export_to(&image, &temporary) {
-        let _ = fs::remove_file(&temporary);
+        let _ = filesystem.remove_file(&temporary);
         return Err(error);
     }
-    if !temporary.is_file() {
+    if !filesystem.is_file(&temporary) {
         return Err("exiftool reported success but did not create an XMP sidecar".into());
     }
-    let installed = if force {
-        fs::rename(&temporary, &sidecar)
-    } else {
-        fs::hard_link(&temporary, &sidecar).and_then(|()| fs::remove_file(&temporary))
-    };
-    if let Err(error) = installed {
-        let _ = fs::remove_file(&temporary);
-        return Err(if sidecar.exists() && !force {
+    if let Err(error) = filesystem.install_sidecar(&temporary, &sidecar, force) {
+        let _ = filesystem.remove_file(&temporary);
+        return Err(if filesystem.exists(&sidecar) && !force {
             format!(
                 "sidecar already exists: {}; use --force to replace it",
                 sidecar.display()
@@ -72,8 +71,9 @@ pub fn show(
     verbose: bool,
     key: Option<&str>,
     tool: &impl SidecarStore,
+    filesystem: &impl FileSystem,
 ) -> Result<String, String> {
-    let sidecar = resolve_xmp_target(target)?;
+    let sidecar = resolve_xmp_target(target, filesystem)?;
     if all {
         return tool.read_properties(&sidecar, Selection::All, verbose);
     }
@@ -93,19 +93,25 @@ pub fn set(
     key: &str,
     value: &str,
     tool: &impl SidecarStore,
+    filesystem: &impl FileSystem,
 ) -> Result<String, String> {
-    write_property(target, key, value, tool)
+    write_property(target, key, value, tool, filesystem)
 }
 
-pub fn clear(target: &Path, key: &str, tool: &impl SidecarStore) -> Result<String, String> {
+pub fn clear(
+    target: &Path,
+    key: &str,
+    tool: &impl SidecarStore,
+    filesystem: &impl FileSystem,
+) -> Result<String, String> {
     validate_key(key)?;
-    let sidecar = resolve_xmp_target(target)?;
+    let sidecar = resolve_xmp_target(target, filesystem)?;
     tool.clear_property(&sidecar, key)
         .map(|updated| if updated { "cleared" } else { "unchanged" }.into())
 }
 
-pub fn edit(target: &Path) -> Result<(), String> {
-    let sidecar = resolve_xmp_target(target)?;
+pub fn edit(target: &Path, filesystem: &impl FileSystem) -> Result<(), String> {
+    let sidecar = resolve_xmp_target(target, filesystem)?;
     let editor = env::var("VISUAL")
         .ok()
         .filter(|s| !s.trim().is_empty())
@@ -130,15 +136,16 @@ fn write_property(
     key: &str,
     value: &str,
     tool: &impl SidecarStore,
+    filesystem: &impl FileSystem,
 ) -> Result<String, String> {
     validate_key(key)?;
-    let sidecar = resolve_xmp_target(target)?;
+    let sidecar = resolve_xmp_target(target, filesystem)?;
     tool.write_property(&sidecar, key, value)
         .map(|updated| if updated { "updated" } else { "unchanged" }.into())
 }
 
 /// Accepts an .xmp path or a bare basename (`photo` means `photo.xmp`); image paths are rejected.
-fn resolve_xmp_target(target: &Path) -> Result<PathBuf, String> {
+fn resolve_xmp_target(target: &Path, filesystem: &impl FileSystem) -> Result<PathBuf, String> {
     if is_image(target) {
         return Err("expected an .xmp file or a basename (e.g. `photo` for photo.xmp)".into());
     }
@@ -149,10 +156,10 @@ fn resolve_xmp_target(target: &Path) -> Result<PathBuf, String> {
         name.push(".xmp");
         PathBuf::from(name)
     };
-    if !path.is_file() {
+    if !filesystem.is_file(&path) {
         return Err(format!("sidecar not found: {}", path.display()));
     }
-    canonical(&path).and_then(require_xmp)
+    canonical(&path, filesystem).and_then(require_xmp)
 }
 
 fn require_xmp(path: PathBuf) -> Result<PathBuf, String> {
@@ -163,25 +170,31 @@ fn require_xmp(path: PathBuf) -> Result<PathBuf, String> {
     }
 }
 
-fn canonical(path: &Path) -> Result<PathBuf, String> {
-    fs::canonicalize(path).map_err(|error| match error.kind() {
-        ErrorKind::NotFound => format!("file not found: {}", path.display()),
-        _ => error.to_string(),
-    })
+fn canonical(path: &Path, filesystem: &impl FileSystem) -> Result<PathBuf, String> {
+    filesystem
+        .canonicalize(path)
+        .map_err(|error| match error.kind() {
+            ErrorKind::NotFound => format!("file not found: {}", path.display()),
+            _ => error.to_string(),
+        })
 }
 
 fn companion(image: &Path) -> PathBuf {
     image.with_extension("xmp")
 }
 
-fn find_stem_collision(image: &Path) -> Result<Option<PathBuf>, String> {
+fn find_stem_collision(
+    image: &Path,
+    filesystem: &impl FileSystem,
+) -> Result<Option<PathBuf>, String> {
     let Some(stem) = image.file_stem() else {
         return Err("image path has no filename".into());
     };
     let parent = image.parent().unwrap_or_else(|| Path::new("."));
-    let entries = fs::read_dir(parent).map_err(|error| error.to_string())?;
-    for entry in entries.flatten() {
-        let path = entry.path();
+    let entries = filesystem
+        .read_dir(parent)
+        .map_err(|error| error.to_string())?;
+    for path in entries {
         if path == image || !is_image(&path) {
             continue;
         }
@@ -199,13 +212,13 @@ fn stem_collision_error(collision: &Path) -> String {
     )
 }
 
-fn temporary_sidecar(sidecar: &Path) -> PathBuf {
+fn temporary_sidecar(sidecar: &Path, filesystem: &impl FileSystem) -> PathBuf {
     let name = sidecar.file_name().unwrap_or_default().to_string_lossy();
     let mut index = 0u32;
     loop {
         let candidate =
             sidecar.with_file_name(format!(".{name}.{}.{}.tmp.xmp", std::process::id(), index));
-        if !candidate.exists() {
+        if !filesystem.exists(&candidate) {
             return candidate;
         }
         index += 1;
@@ -239,9 +252,58 @@ fn is_xmp(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{find_stem_collision, is_image, is_xmp, resolve_xmp_target, validate_key};
+    use super::{export, find_stem_collision, is_image, is_xmp, resolve_xmp_target, validate_key};
+    use crate::filesystem::LocalFileSystem;
+    use crate::port::{Selection, SidecarStore};
     use std::fs;
     use std::path::Path;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Default)]
+    struct TestSidecarStore;
+
+    impl SidecarStore for TestSidecarStore {
+        fn ensure_available(&self) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn export_to(&self, _image: &Path, sidecar: &Path) -> Result<(), String> {
+            fs::write(sidecar, b"test sidecar").map_err(|error| error.to_string())
+        }
+
+        fn read_properties(
+            &self,
+            _sidecar: &Path,
+            _selection: Selection,
+            _verbose: bool,
+        ) -> Result<String, String> {
+            Ok(String::new())
+        }
+
+        fn write_property(
+            &self,
+            _sidecar: &Path,
+            _key: &str,
+            _value: &str,
+        ) -> Result<bool, String> {
+            Ok(false)
+        }
+
+        fn clear_property(&self, _sidecar: &Path, _key: &str) -> Result<bool, String> {
+            Ok(false)
+        }
+    }
+
+    fn test_directory() -> std::path::PathBuf {
+        static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
+        let directory = std::env::temp_dir().join(format!(
+            "pg-usecase-{}-{}",
+            std::process::id(),
+            NEXT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).unwrap();
+        directory
+    }
 
     #[test]
     fn accepts_supported_image_and_xmp_extensions_case_insensitively() {
@@ -253,8 +315,9 @@ mod tests {
 
     #[test]
     fn rejects_image_paths_for_xmp_targets() {
+        let filesystem = LocalFileSystem;
         assert!(
-            resolve_xmp_target(Path::new("photo.jpg"))
+            resolve_xmp_target(Path::new("photo.jpg"), &filesystem)
                 .unwrap_err()
                 .contains("expected an .xmp file or a basename")
         );
@@ -270,16 +333,33 @@ mod tests {
 
     #[test]
     fn rejects_ambiguous_image_basenames() {
-        let directory = std::env::temp_dir().join(format!("pg-collision-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&directory);
-        fs::create_dir_all(&directory).unwrap();
+        let directory = test_directory();
         let jpeg = directory.join("photo.jpg");
         fs::write(&jpeg, b"jpeg").unwrap();
         fs::write(directory.join("photo.NEF"), b"raw").unwrap();
         assert_eq!(
-            find_stem_collision(&jpeg).unwrap(),
+            find_stem_collision(&jpeg, &LocalFileSystem).unwrap(),
             Some(directory.join("photo.NEF"))
         );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn exports_through_the_filesystem_port_and_respects_force() {
+        let directory = test_directory();
+        let image = directory.join("photo.jpg");
+        let sidecar = directory.join("photo.xmp");
+        fs::write(&image, b"image").unwrap();
+        fs::write(&sidecar, b"existing sidecar").unwrap();
+
+        let filesystem = LocalFileSystem;
+        let store = TestSidecarStore;
+        assert!(export(&image, false, &store, &filesystem).is_err());
+        assert_eq!(fs::read(&sidecar).unwrap(), b"existing sidecar");
+
+        assert!(export(&image, true, &store, &filesystem).is_ok());
+        assert_eq!(fs::read(&sidecar).unwrap(), b"test sidecar");
+
         fs::remove_dir_all(directory).unwrap();
     }
 }
