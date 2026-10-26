@@ -1,4 +1,5 @@
 mod exiftool;
+mod filesystem;
 mod glob;
 mod port;
 mod usecase;
@@ -99,6 +100,7 @@ fn main() -> ExitCode {
         }
     };
     let exiftool = exiftool::ExifTool;
+    let filesystem = filesystem::LocalFileSystem;
     if let Err(error) = exiftool.ensure_available() {
         eprintln!("pg: {error}");
         return ExitCode::from(1);
@@ -110,7 +112,7 @@ fn main() -> ExitCode {
             for image in expand_all(&targets) {
                 report(
                     image.display(),
-                    usecase::export(&image, force, &exiftool),
+                    usecase::export(&image, force, &exiftool, &filesystem),
                     &mut failed,
                 );
             }
@@ -122,8 +124,15 @@ fn main() -> ExitCode {
         } => {
             let key = display.key.as_deref();
             for target in expand_all(&targets) {
-                let result =
-                    usecase::show(&target, display.all, display.basic, verbose, key, &exiftool);
+                let result = usecase::show(
+                    &target,
+                    display.all,
+                    display.basic,
+                    verbose,
+                    key,
+                    &exiftool,
+                    &filesystem,
+                );
                 match result {
                     Ok(text) if text.is_empty() => {}
                     Ok(text) => println!("{text}"),
@@ -142,7 +151,7 @@ fn main() -> ExitCode {
             let key = property.key.as_deref().unwrap_or(usecase::DEFAULT_COMMENT);
             report_silently(
                 &target,
-                usecase::set(target.as_ref(), key, &value, &exiftool),
+                usecase::set(target.as_ref(), key, &value, &exiftool, &filesystem),
                 &mut failed,
             );
         }
@@ -150,13 +159,15 @@ fn main() -> ExitCode {
             let key = property.key.as_deref().unwrap_or(usecase::DEFAULT_COMMENT);
             report_silently(
                 &target,
-                usecase::clear(target.as_ref(), key, &exiftool),
+                usecase::clear(target.as_ref(), key, &exiftool, &filesystem),
                 &mut failed,
             );
         }
-        Command::Edit { target } => {
-            report_silently(&target, usecase::edit(target.as_ref()), &mut failed)
-        }
+        Command::Edit { target } => report_silently(
+            &target,
+            usecase::edit(target.as_ref(), &filesystem),
+            &mut failed,
+        ),
     }
     if failed {
         ExitCode::from(2)
