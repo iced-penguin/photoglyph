@@ -46,7 +46,7 @@ CI (`.github/workflows/`) runs `cargo fmt --all -- --check` and `cargo test --al
 ## Boundaries
 
 - Never modify image files (`.jpg`, `.nef`, etc.). Metadata changes go only to `.xmp` sidecars. This is the core product promise.
-- Do not overwrite an existing sidecar unless the user explicitly passes the force option.
+- When exporting, do not overwrite an existing sidecar unless the user explicitly passes `--force`. The `set`, `clear`, and `edit` commands intentionally update existing sidecars without a force option.
 - Do not add dependencies without a clear need; mention any new crate in the PR description.
 - Do not edit `Cargo.lock` by hand, and do not commit `target/`.
 - Keep user-facing behavior and [README.md](README.md) in sync: update the README when commands or options change.
