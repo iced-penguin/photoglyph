@@ -22,3 +22,13 @@ cargo run -- --help
 ```sh
 cargo test
 ```
+
+## Checks before a pull request
+
+```sh
+cargo fmt --all
+cargo clippy --all-targets -- -D warnings
+cargo test --all-targets
+```
+
+AI coding agents should also read [AGENTS.md](AGENTS.md).
