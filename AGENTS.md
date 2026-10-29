@@ -35,7 +35,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 ```
 
-CI (`.github/workflows/`) runs `cargo fmt --all -- --check` and `cargo test --all-targets` on pull requests.
+CI (`.github/workflows/quality.yml`) runs `format`, `clippy`, and `test` as separate parallel jobs on pull requests (`cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --all-targets`) using the pinned Rust 1.85.0 toolchain. All three are required checks on `main`.
 
 ## Testing
 
