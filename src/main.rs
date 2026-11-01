@@ -99,7 +99,7 @@ fn main() -> ExitCode {
             };
         }
     };
-    let exiftool = exiftool::ExifTool;
+    let exiftool = exiftool::ExifTool::default();
     let filesystem = filesystem::LocalFileSystem;
     if let Err(error) = exiftool.ensure_available() {
         eprintln!("pg: {error}");
@@ -205,5 +205,201 @@ fn report_silently<T>(
     if let Err(error) = result {
         eprintln!("{target}: error: {error}");
         *failed = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cli, Command};
+    use clap::{Parser, error::ErrorKind};
+    use rstest::rstest;
+
+    fn parse(args: &[&str]) -> Command {
+        Cli::try_parse_from(args).unwrap().command
+    }
+
+    fn targets_of(command: Command) -> Vec<String> {
+        match command {
+            Command::Export { targets, .. } | Command::Show { targets, .. } => targets,
+            _ => panic!("command has no multiple targets"),
+        }
+    }
+
+    fn target_of(command: Command) -> String {
+        match command {
+            Command::Set { target, .. }
+            | Command::Clear { target, .. }
+            | Command::Edit { target } => target,
+            _ => panic!("command has no single target"),
+        }
+    }
+
+    fn key_of(command: Command) -> Option<String> {
+        match command {
+            Command::Show { display, .. } => display.key,
+            Command::Set { property, .. } | Command::Clear { property, .. } => property.key,
+            _ => panic!("command has no --key option"),
+        }
+    }
+
+    #[rstest]
+    #[case::export(&["pg", "export", "one.jpg", "two.nef"], &["one.jpg", "two.nef"])]
+    #[case::show(&["pg", "show", "one.xmp", "two.xmp"], &["one.xmp", "two.xmp"])]
+    fn parses_multiple_targets(#[case] args: &[&str], #[case] expected: &[&str]) {
+        assert_eq!(targets_of(parse(args)), expected);
+    }
+
+    #[rstest]
+    #[case::set(&["pg", "set", "photo", "text"])]
+    #[case::clear(&["pg", "clear", "photo"])]
+    #[case::edit(&["pg", "edit", "photo"])]
+    fn parses_single_target(#[case] args: &[&str]) {
+        assert_eq!(target_of(parse(args)), "photo");
+    }
+
+    #[rstest]
+    #[case::show(&["pg", "show", "--key", "XMP-dc:Creator", "photo"], Some("XMP-dc:Creator"))]
+    #[case::show_short(&["pg", "show", "-k", "XMP-dc:Creator", "photo"], Some("XMP-dc:Creator"))]
+    #[case::show_equals(&["pg", "show", "--key=XMP-dc:Creator", "photo"], Some("XMP-dc:Creator"))]
+    #[case::show_attached_short(&["pg", "show", "-kXMP-dc:Creator", "photo"], Some("XMP-dc:Creator"))]
+    #[case::show_default(&["pg", "show", "photo"], None)]
+    #[case::set(&["pg", "set", "--key", "XMP-dc:Creator", "photo", "text"], Some("XMP-dc:Creator"))]
+    #[case::set_short(&["pg", "set", "-k", "XMP-dc:Creator", "photo", "text"], Some("XMP-dc:Creator"))]
+    #[case::set_default(&["pg", "set", "photo", "text"], None)]
+    #[case::clear(&["pg", "clear", "--key", "XMP-dc:Creator", "photo"], Some("XMP-dc:Creator"))]
+    #[case::clear_short(&["pg", "clear", "-k", "XMP-dc:Creator", "photo"], Some("XMP-dc:Creator"))]
+    #[case::clear_default(&["pg", "clear", "photo"], None)]
+    fn parses_key_option(#[case] args: &[&str], #[case] expected: Option<&str>) {
+        assert_eq!(key_of(parse(args)).as_deref(), expected);
+    }
+
+    #[rstest]
+    #[case::without_force(&["pg", "export", "one.jpg"], false)]
+    #[case::long(&["pg", "export", "--force", "one.jpg"], true)]
+    #[case::short(&["pg", "export", "-f", "one.jpg"], true)]
+    fn parses_export_force(#[case] args: &[&str], #[case] expected: bool) {
+        let Command::Export { force, .. } = parse(args) else {
+            panic!("expected export command");
+        };
+        assert_eq!(force, expected);
+    }
+
+    #[rstest]
+    #[case::default(&["pg", "show", "one.xmp"], false, false, false)]
+    #[case::basic(&["pg", "show", "--basic", "one.xmp"], true, false, false)]
+    #[case::basic_short(&["pg", "show", "-b", "one.xmp"], true, false, false)]
+    #[case::all(&["pg", "show", "--all", "one.xmp"], false, true, false)]
+    #[case::all_short(&["pg", "show", "-a", "one.xmp"], false, true, false)]
+    #[case::verbose(&["pg", "show", "--verbose", "one.xmp"], false, false, true)]
+    #[case::verbose_short(&["pg", "show", "-v", "one.xmp"], false, false, true)]
+    #[case::all_verbose(&["pg", "show", "--all", "--verbose", "one.xmp"], false, true, true)]
+    #[case::basic_verbose(&["pg", "show", "--basic", "--verbose", "one.xmp"], true, false, true)]
+    #[case::short_basic_verbose(&["pg", "show", "-b", "-v", "one.xmp"], true, false, true)]
+    #[case::long_basic_short_verbose(&["pg", "show", "--basic", "-v", "one.xmp"], true, false, true)]
+    #[case::short_all_verbose(&["pg", "show", "-a", "-v", "one.xmp"], false, true, true)]
+    #[case::bundled_basic_verbose(&["pg", "show", "-bv", "one.xmp"], true, false, true)]
+    #[case::bundled_all_verbose(&["pg", "show", "-av", "one.xmp"], false, true, true)]
+    #[case::options_after_target(&["pg", "show", "one.xmp", "--all", "-v"], false, true, true)]
+    fn parses_show_display_options(
+        #[case] args: &[&str],
+        #[case] basic: bool,
+        #[case] all: bool,
+        #[case] verbose_expected: bool,
+    ) {
+        let Command::Show {
+            display, verbose, ..
+        } = parse(args)
+        else {
+            panic!("expected show command");
+        };
+        assert_eq!(display.basic, basic);
+        assert_eq!(display.all, all);
+        assert_eq!(display.key, None);
+        assert_eq!(verbose, verbose_expected);
+    }
+
+    #[rstest]
+    #[case::single_dash(&["pg", "set", "photo", "-starts-with-dash"], "-starts-with-dash")]
+    #[case::double_dash(&["pg", "set", "photo", "--verbose"], "--verbose")]
+    #[case::empty(&["pg", "set", "photo", ""], "")]
+    #[case::after_key(&["pg", "set", "-k", "XMP-dc:Creator", "photo", "-text"], "-text")]
+    fn parses_set_value(#[case] args: &[&str], #[case] expected: &str) {
+        let Command::Set { target, value, .. } = parse(args) else {
+            panic!("expected set command");
+        };
+        assert_eq!(target, "photo");
+        assert_eq!(value, expected);
+    }
+
+    #[test]
+    fn parses_show_key_with_verbose() {
+        let Command::Show {
+            display, verbose, ..
+        } = parse(&[
+            "pg",
+            "show",
+            "--key",
+            "XMP-dc:Creator",
+            "--verbose",
+            "one.xmp",
+        ])
+        else {
+            panic!("expected show command");
+        };
+        assert_eq!(display.key.as_deref(), Some("XMP-dc:Creator"));
+        assert!(verbose);
+    }
+
+    #[test]
+    fn parses_export_force_after_targets() {
+        let Command::Export { force, targets } = parse(&["pg", "export", "one.jpg", "--force"])
+        else {
+            panic!("expected export command");
+        };
+        assert!(force);
+        assert_eq!(targets, ["one.jpg"]);
+    }
+
+    #[rstest]
+    #[case::show_conflicting_modes(&["pg", "show", "--all", "--basic", "one.xmp"], ErrorKind::ArgumentConflict)]
+    #[case::show_conflicting_modes_verbose(&["pg", "show", "--basic", "--all", "--verbose", "one.xmp"], ErrorKind::ArgumentConflict)]
+    #[case::show_basic_with_key(&["pg", "show", "--basic", "--key", "XMP-dc:Creator", "one.xmp"], ErrorKind::ArgumentConflict)]
+    #[case::show_all_with_key(&["pg", "show", "--all", "--key", "XMP-dc:Creator", "one.xmp"], ErrorKind::ArgumentConflict)]
+    #[case::show_short_conflicting_modes(&["pg", "show", "-a", "-b", "one.xmp"], ErrorKind::ArgumentConflict)]
+    #[case::show_short_key_with_all(&["pg", "show", "-k", "XMP-dc:Creator", "-a", "one.xmp"], ErrorKind::ArgumentConflict)]
+    #[case::show_bundled_conflicting_modes(&["pg", "show", "-ab", "one.xmp"], ErrorKind::ArgumentConflict)]
+    #[case::set_extra_argument(&["pg", "set", "a", "b", "c"], ErrorKind::UnknownArgument)]
+    #[case::clear_extra_argument(&["pg", "clear", "a", "b"], ErrorKind::UnknownArgument)]
+    #[case::edit_extra_argument(&["pg", "edit", "a", "b"], ErrorKind::UnknownArgument)]
+    #[case::no_subcommand(&["pg"], ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand)]
+    #[case::unknown_subcommand(&["pg", "foo"], ErrorKind::InvalidSubcommand)]
+    #[case::unknown_option(&["pg", "show", "--nope", "one.xmp"], ErrorKind::UnknownArgument)]
+    #[case::export_unknown_short_option(&["pg", "export", "-x", "one.jpg"], ErrorKind::UnknownArgument)]
+    #[case::edit_rejects_key(&["pg", "edit", "--key", "XMP-dc:Creator", "photo"], ErrorKind::UnknownArgument)]
+    #[case::key_without_value(&["pg", "show", "one.xmp", "--key"], ErrorKind::InvalidValue)]
+    #[case::show_without_target(&["pg", "show"], ErrorKind::MissingRequiredArgument)]
+    #[case::export_without_target(&["pg", "export"], ErrorKind::MissingRequiredArgument)]
+    #[case::set_without_args(&["pg", "set"], ErrorKind::MissingRequiredArgument)]
+    #[case::set_without_value(&["pg", "set", "photo"], ErrorKind::MissingRequiredArgument)]
+    #[case::clear_without_target(&["pg", "clear"], ErrorKind::MissingRequiredArgument)]
+    #[case::edit_without_target(&["pg", "edit"], ErrorKind::MissingRequiredArgument)]
+    fn rejects_invalid_arguments(#[case] args: &[&str], #[case] expected: ErrorKind) {
+        let error = Cli::try_parse_from(args).err().unwrap();
+        assert_eq!(error.kind(), expected);
+    }
+
+    #[rstest]
+    #[case::help(&["pg", "--help"], ErrorKind::DisplayHelp)]
+    #[case::help_short(&["pg", "-h"], ErrorKind::DisplayHelp)]
+    #[case::export_help(&["pg", "export", "--help"], ErrorKind::DisplayHelp)]
+    #[case::show_help(&["pg", "show", "-h"], ErrorKind::DisplayHelp)]
+    #[case::set_help(&["pg", "set", "--help"], ErrorKind::DisplayHelp)]
+    #[case::clear_help(&["pg", "clear", "--help"], ErrorKind::DisplayHelp)]
+    #[case::edit_help(&["pg", "edit", "--help"], ErrorKind::DisplayHelp)]
+    #[case::version(&["pg", "--version"], ErrorKind::DisplayVersion)]
+    #[case::version_short(&["pg", "-V"], ErrorKind::DisplayVersion)]
+    fn short_circuits_on_help_and_version(#[case] args: &[&str], #[case] expected: ErrorKind) {
+        let error = Cli::try_parse_from(args).err().unwrap();
+        assert_eq!(error.kind(), expected);
     }
 }

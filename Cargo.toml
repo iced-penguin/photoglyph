@@ -10,3 +10,6 @@ path = "src/main.rs"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 glob = "0.3"
+
+[dev-dependencies]
+rstest = "0.28.0"
