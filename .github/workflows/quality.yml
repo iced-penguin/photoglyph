@@ -50,5 +50,5 @@ jobs:
       - run: cargo install cargo-llvm-cov --locked
       - run: >-
           cargo llvm-cov --all-targets
-          --ignore-filename-regex '(^|/)src/(main|exiftool|filesystem|glob)\.rs$'
+          --ignore-filename-regex '(^|/)src/(main|exiftool|filesystem|glob|usecase_test_helpers)\.rs$'
           --fail-uncovered-lines 0
