@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.85.0
+          toolchain: 1.99.1
           components: rustfmt
       - run: cargo fmt --all -- --check
 
@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.85.0
+          toolchain: 1.99.1
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets -- -D warnings
@@ -34,6 +34,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.85.0
+          toolchain: 1.99.1
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --all-targets
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-llvm-cov --locked
+      - run: >-
+          cargo llvm-cov --all-targets
+          --ignore-filename-regex '(^|/)src/(main|exiftool|filesystem|glob|usecase_test_helpers)\.rs$'
+          --fail-uncovered-lines 0

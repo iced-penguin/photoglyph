@@ -117,11 +117,16 @@ pub fn edit(target: &Path, filesystem: &impl FileSystem) -> Result<(), String> {
         .filter(|s| !s.trim().is_empty())
         .or_else(|| env::var("EDITOR").ok().filter(|s| !s.trim().is_empty()))
         .ok_or("set $VISUAL or $EDITOR to an editor command")?;
+    run_editor(&sidecar, &editor)
+}
+
+// TODO: Move editor selection and invocation behind a port to keep use cases independent of process management.
+fn run_editor(sidecar: &Path, editor: &str) -> Result<(), String> {
     let mut parts = editor.split_whitespace();
     let executable = parts.next().ok_or("editor command is empty")?;
     let status = Command::new(executable)
         .args(parts)
-        .arg(&sidecar)
+        .arg(sidecar)
         .status()
         .map_err(|error| format!("cannot start editor: {error}"))?;
     if status.success() {
@@ -190,7 +195,7 @@ fn find_stem_collision(
     let Some(stem) = image.file_stem() else {
         return Err("image path has no filename".into());
     };
-    let parent = image.parent().unwrap_or_else(|| Path::new("."));
+    let parent = parent_or_current_dir(image.parent());
     let entries = filesystem
         .read_dir(parent)
         .map_err(|error| error.to_string())?;
@@ -203,6 +208,10 @@ fn find_stem_collision(
         }
     }
     Ok(None)
+}
+
+fn parent_or_current_dir(parent: Option<&Path>) -> &Path {
+    parent.unwrap_or_else(|| Path::new("."))
 }
 
 fn stem_collision_error(collision: &Path) -> String {
@@ -251,115 +260,712 @@ fn is_xmp(path: &Path) -> bool {
 }
 
 #[cfg(test)]
+#[path = "usecase_test_helpers.rs"]
+mod test_helpers;
+
+#[cfg(test)]
 mod tests {
-    use super::{export, find_stem_collision, is_image, is_xmp, resolve_xmp_target, validate_key};
-    use crate::filesystem::LocalFileSystem;
-    use crate::port::{Selection, SidecarStore};
-    use std::fs;
+    #[cfg(unix)]
+    use super::test_helpers::{EDITOR_ENV_LOCK, EditorEnv};
+    use super::test_helpers::{StoreCall, TestFileSystem, TestSidecarStore};
+    use super::{
+        BASIC_KEYS, clear, export, find_stem_collision, is_image, is_xmp, parent_or_current_dir,
+        resolve_xmp_target, run_editor, set, show, validate_key,
+    };
+    use crate::port::FileSystem;
+    use std::io::ErrorKind;
     use std::path::Path;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::path::PathBuf;
 
-    #[derive(Default)]
-    struct TestSidecarStore;
+    use rstest::rstest;
 
-    impl SidecarStore for TestSidecarStore {
-        fn ensure_available(&self) -> Result<(), String> {
-            Ok(())
-        }
-
-        fn export_to(&self, _image: &Path, sidecar: &Path) -> Result<(), String> {
-            fs::write(sidecar, b"test sidecar").map_err(|error| error.to_string())
-        }
-
-        fn read_properties(
-            &self,
-            _sidecar: &Path,
-            _selection: Selection,
-            _verbose: bool,
-        ) -> Result<String, String> {
-            Ok(String::new())
-        }
-
-        fn write_property(
-            &self,
-            _sidecar: &Path,
-            _key: &str,
-            _value: &str,
-        ) -> Result<bool, String> {
-            Ok(false)
-        }
-
-        fn clear_property(&self, _sidecar: &Path, _key: &str) -> Result<bool, String> {
-            Ok(false)
-        }
+    #[rstest]
+    #[case("photo.jpg", true)]
+    #[case("photo.jpeg", true)]
+    #[case("photo.png", true)]
+    #[case("photo.nef", true)]
+    #[case("photo.tif", true)]
+    #[case("photo.tiff", true)]
+    #[case("photo.dng", true)]
+    #[case("photo.NEF", true)]
+    #[case("photo.xmp", false)]
+    #[case("photo.txt", false)]
+    #[case("photo", false)]
+    fn detects_supported_image_extensions(#[case] path: &str, #[case] expected: bool) {
+        assert_eq!(is_image(Path::new(path)), expected);
     }
 
-    fn test_directory() -> std::path::PathBuf {
-        static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
-        let directory = std::env::temp_dir().join(format!(
-            "pg-usecase-{}-{}",
-            std::process::id(),
-            NEXT_ID.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&directory).unwrap();
-        directory
+    #[rstest]
+    #[case("photo.xmp", true)]
+    #[case("photo.XMP", true)]
+    #[case("photo.jpg", false)]
+    #[case("photo", false)]
+    fn detects_xmp_extensions(#[case] path: &str, #[case] expected: bool) {
+        assert_eq!(is_xmp(Path::new(path)), expected);
     }
 
-    #[test]
-    fn accepts_supported_image_and_xmp_extensions_case_insensitively() {
-        assert!(is_image(Path::new("photo.NEF")));
-        assert!(is_image(Path::new("photo.tiff")));
-        assert!(is_xmp(Path::new("photo.XMP")));
-        assert!(!is_image(Path::new("photo.txt")));
+    #[rstest]
+    #[case(None, ".")]
+    #[case(Some("/photos"), "/photos")]
+    fn resolves_image_parent_or_defaults_to_current_directory(
+        #[case] parent: Option<&str>,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(
+            parent_or_current_dir(parent.map(Path::new)),
+            Path::new(expected)
+        );
     }
 
     #[test]
     fn rejects_image_paths_for_xmp_targets() {
-        let filesystem = LocalFileSystem;
         assert!(
-            resolve_xmp_target(Path::new("photo.jpg"), &filesystem)
+            resolve_xmp_target(Path::new("photo.jpg"), &TestFileSystem::default())
                 .unwrap_err()
                 .contains("expected an .xmp file or a basename")
         );
     }
 
-    #[test]
-    fn validates_exiftool_keys_as_individual_arguments() {
-        assert!(validate_key("XMP-dc:Description").is_ok());
-        assert!(validate_key("XMP-dc:Description=value").is_err());
-        assert!(validate_key("-XMP-dc:Description").is_err());
-        assert!(validate_key("XMP-dc:Description\n-other").is_err());
+    #[rstest]
+    #[case("XMP-dc:Description", true)]
+    #[case("XMP-xmp:Rating", true)]
+    #[case("XMP-dc:Description=value", false)]
+    #[case("-XMP-dc:Description", false)]
+    #[case("XMP-dc:Description\n-other", false)]
+    #[case("bad key", false)]
+    #[case("Description", false)]
+    #[case("", false)]
+    #[case("XMP-dc:Descripción", false)]
+    fn validates_exiftool_keys_as_individual_arguments(#[case] key: &str, #[case] valid: bool) {
+        assert_eq!(validate_key(key).is_ok(), valid);
     }
 
     #[test]
-    fn rejects_ambiguous_image_basenames() {
-        let directory = test_directory();
-        let jpeg = directory.join("photo.jpg");
-        fs::write(&jpeg, b"jpeg").unwrap();
-        fs::write(directory.join("photo.NEF"), b"raw").unwrap();
+    fn finds_an_image_with_the_same_basename() {
+        let filesystem = TestFileSystem::default();
+        let jpeg = Path::new("/photos/photo.jpg");
+        filesystem.add_file(jpeg);
+        filesystem.add_file(Path::new("/photos/photo.NEF"));
         assert_eq!(
-            find_stem_collision(&jpeg, &LocalFileSystem).unwrap(),
-            Some(directory.join("photo.NEF"))
+            find_stem_collision(jpeg, &filesystem).unwrap(),
+            Some(PathBuf::from("/photos/photo.NEF"))
         );
-        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
-    fn exports_through_the_filesystem_port_and_respects_force() {
-        let directory = test_directory();
-        let image = directory.join("photo.jpg");
-        let sidecar = directory.join("photo.xmp");
-        fs::write(&image, b"image").unwrap();
-        fs::write(&sidecar, b"existing sidecar").unwrap();
+    fn does_not_find_a_collision_for_a_different_basename() {
+        let filesystem = TestFileSystem::default();
+        let jpeg = Path::new("/photos/photo.jpg");
+        filesystem.add_file(jpeg);
+        filesystem.add_file(Path::new("/photos/other.jpg"));
+        assert_eq!(find_stem_collision(jpeg, &filesystem).unwrap(), None);
+    }
 
-        let filesystem = LocalFileSystem;
-        let store = TestSidecarStore;
-        assert!(export(&image, false, &store, &filesystem).is_err());
-        assert_eq!(fs::read(&sidecar).unwrap(), b"existing sidecar");
+    #[test]
+    fn reports_missing_image_filename_for_stem_collision_checks() {
+        assert!(
+            find_stem_collision(Path::new("/"), &TestFileSystem::default())
+                .unwrap_err()
+                .contains("no filename")
+        );
+    }
 
-        assert!(export(&image, true, &store, &filesystem).is_ok());
-        assert_eq!(fs::read(&sidecar).unwrap(), b"test sidecar");
+    #[test]
+    fn rejects_non_xmp_canonical_targets() {
+        let filesystem = TestFileSystem::default();
+        let sidecar = Path::new("/photos/photo.xmp");
+        filesystem.add_file(sidecar);
+        filesystem.0.borrow_mut().canonicalize_to = Some(PathBuf::from("/photos/resolved.txt"));
+        assert!(
+            resolve_xmp_target(sidecar, &filesystem)
+                .unwrap_err()
+                .contains("not an .xmp sidecar")
+        );
+    }
 
-        fs::remove_dir_all(directory).unwrap();
+    #[test]
+    fn export_rejects_unsupported_image_paths() {
+        let filesystem = TestFileSystem::default();
+        let store = TestSidecarStore::default();
+        assert_eq!(
+            export(Path::new("/photos/photo.txt"), false, &store, &filesystem).unwrap_err(),
+            "export requires a supported image path"
+        );
+        assert!(store.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn export_reports_missing_images() {
+        let filesystem = TestFileSystem::default();
+        let store = TestSidecarStore::default();
+        assert!(
+            export(Path::new("/photos/missing.jpg"), false, &store, &filesystem)
+                .unwrap_err()
+                .contains("file not found")
+        );
+        assert!(store.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn export_reports_image_canonicalization_errors() {
+        let filesystem = TestFileSystem::default();
+        let store = TestSidecarStore::default();
+        filesystem.add_file(Path::new("/photos/photo.jpg"));
+        filesystem.0.borrow_mut().canonicalize_error = Some(ErrorKind::PermissionDenied);
+        assert!(
+            export(Path::new("/photos/photo.jpg"), false, &store, &filesystem)
+                .unwrap_err()
+                .contains("denied")
+        );
+        assert!(store.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn export_reports_directory_read_errors() {
+        let filesystem = TestFileSystem::default();
+        let image = Path::new("/photos/photo.jpg");
+        filesystem.add_file(image);
+        filesystem.0.borrow_mut().read_dir_error = Some(ErrorKind::PermissionDenied);
+        let store = TestSidecarStore::default();
+        assert!(
+            export(image, false, &store, &filesystem)
+                .unwrap_err()
+                .contains("denied")
+        );
+        assert!(store.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn export_reports_missing_output_after_tool_success() {
+        let filesystem = TestFileSystem::default();
+        let image = Path::new("/photos/photo.jpg");
+        filesystem.add_file(image);
+        let store = TestSidecarStore {
+            filesystem: filesystem.clone(),
+            ..Default::default()
+        };
+        assert!(
+            export(image, false, &store, &filesystem)
+                .unwrap_err()
+                .contains("did not create an XMP sidecar")
+        );
+        assert_eq!(filesystem.file_count(), 1);
+    }
+
+    #[test]
+    fn export_rejects_image_basename_collisions_without_force() {
+        let filesystem = TestFileSystem::default();
+        let image = Path::new("/photos/photo.jpg");
+        filesystem.add_file(image);
+        filesystem.add_file(Path::new("/photos/photo.NEF"));
+        let store = TestSidecarStore::default();
+
+        assert!(
+            export(image, false, &store, &filesystem)
+                .unwrap_err()
+                .contains("basename is ambiguous")
+        );
+        assert!(store.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn export_with_force_replaces_existing_sidecars() {
+        let filesystem = TestFileSystem::default();
+        let image = Path::new("/photos/photo.jpg");
+        let sidecar = Path::new("/photos/photo.xmp");
+        filesystem.add_file(image);
+        filesystem.add_file(sidecar);
+        let store = TestSidecarStore {
+            filesystem: filesystem.clone(),
+            export_creates_file: true,
+            ..Default::default()
+        };
+        assert!(export(image, true, &store, &filesystem).is_ok());
+        assert!(filesystem.is_file(sidecar));
+        assert_eq!(filesystem.file_count(), 2);
+    }
+
+    #[test]
+    fn export_reports_sidecars_created_during_install_without_force() {
+        let filesystem = TestFileSystem::default();
+        let image = Path::new("/photos/photo.jpg");
+        filesystem.add_file(image);
+        {
+            let mut state = filesystem.0.borrow_mut();
+            state.install_error = Some(ErrorKind::AlreadyExists);
+            state.create_sidecar_during_install = true;
+        }
+        let store = TestSidecarStore {
+            filesystem: filesystem.clone(),
+            export_creates_file: true,
+            ..Default::default()
+        };
+        assert!(
+            export(image, false, &store, &filesystem)
+                .unwrap_err()
+                .contains("use --force to replace it")
+        );
+        assert!(filesystem.is_file(Path::new("/photos/photo.xmp")));
+    }
+
+    #[test]
+    fn export_skips_existing_temporary_names() {
+        let filesystem = TestFileSystem::default();
+        let image = Path::new("/photos/photo.jpg");
+        filesystem.add_file(image);
+        let existing_temporary = PathBuf::from(format!(
+            "/photos/.photo.xmp.{}.0.tmp.xmp",
+            std::process::id()
+        ));
+        filesystem.add_file(&existing_temporary);
+        let store = TestSidecarStore {
+            filesystem: filesystem.clone(),
+            export_creates_file: true,
+            ..Default::default()
+        };
+
+        assert!(export(image, false, &store, &filesystem).is_ok());
+        assert!(filesystem.is_file(&existing_temporary));
+        assert!(matches!(
+            store.calls.borrow().as_slice(),
+            [StoreCall::Export(_, temporary)] if temporary != &existing_temporary
+        ));
+    }
+
+    #[test]
+    fn export_installs_a_created_sidecar() {
+        let filesystem = TestFileSystem::default();
+        let image = Path::new("/photos/photo.jpg");
+        let sidecar = Path::new("/photos/photo.xmp");
+        filesystem.add_file(image);
+        let store = TestSidecarStore {
+            filesystem: filesystem.clone(),
+            export_creates_file: true,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            export(image, false, &store, &filesystem).unwrap(),
+            "exported to /photos/photo.xmp"
+        );
+        assert!(filesystem.is_file(sidecar));
+        assert_eq!(filesystem.file_count(), 2);
+        assert!(matches!(
+            store.calls.borrow().as_slice(),
+            [StoreCall::Export(called_image, temporary)]
+                if called_image == image && temporary != sidecar
+        ));
+    }
+
+    #[test]
+    fn export_rejects_existing_sidecars_and_preserves_them_without_force() {
+        let filesystem = TestFileSystem::default();
+        let image = Path::new("/photos/photo.jpg");
+        let sidecar = Path::new("/photos/photo.xmp");
+        filesystem.add_file(image);
+        filesystem.add_file(sidecar);
+        let store = TestSidecarStore {
+            filesystem: filesystem.clone(),
+            ..Default::default()
+        };
+
+        assert!(
+            export(image, false, &store, &filesystem)
+                .unwrap_err()
+                .contains("use --force to replace it")
+        );
+        assert!(store.calls.borrow().is_empty());
+        assert!(filesystem.is_file(sidecar));
+    }
+
+    #[test]
+    fn export_cleans_up_temporary_sidecar_after_tool_failure() {
+        let image = Path::new("/photos/photo.jpg");
+        let filesystem = TestFileSystem::default();
+        filesystem.add_file(image);
+        let tool_error = TestSidecarStore {
+            filesystem: filesystem.clone(),
+            export_error: Some("export failed".into()),
+            export_creates_file: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            export(image, false, &tool_error, &filesystem).unwrap_err(),
+            "export failed"
+        );
+        assert_eq!(filesystem.file_count(), 1);
+    }
+
+    #[test]
+    fn export_cleans_up_temporary_sidecar_after_install_failure() {
+        let image = Path::new("/photos/photo.jpg");
+        let install_filesystem = TestFileSystem::default();
+        install_filesystem.add_file(image);
+        install_filesystem.0.borrow_mut().install_error = Some(ErrorKind::PermissionDenied);
+        let store = TestSidecarStore {
+            filesystem: install_filesystem.clone(),
+            export_creates_file: true,
+            ..Default::default()
+        };
+        assert!(
+            export(image, false, &store, &install_filesystem)
+                .unwrap_err()
+                .contains("cannot install sidecar")
+        );
+        assert_eq!(install_filesystem.file_count(), 1);
+    }
+
+    #[test]
+    fn export_propagates_tool_error_when_no_temporary_sidecar_was_created() {
+        let image = Path::new("/photos/photo.jpg");
+        let missing_temporary_fs = TestFileSystem::default();
+        missing_temporary_fs.add_file(image);
+        let store = TestSidecarStore {
+            export_error: Some("export failed before creating output".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            export(image, false, &store, &missing_temporary_fs).unwrap_err(),
+            "export failed before creating output"
+        );
+        assert_eq!(missing_temporary_fs.file_count(), 1);
+    }
+
+    #[test]
+    fn forced_export_warns_when_another_image_shares_its_basename() {
+        let filesystem = TestFileSystem::default();
+        let image = Path::new("/photos/photo.jpg");
+        filesystem.add_file(image);
+        filesystem.add_file(Path::new("/photos/photo.NEF"));
+        let store = TestSidecarStore {
+            filesystem: filesystem.clone(),
+            export_creates_file: true,
+            ..Default::default()
+        };
+        assert!(export(image, true, &store, &filesystem).is_ok());
+    }
+
+    #[test]
+    fn show_uses_default_key() {
+        let filesystem = TestFileSystem::default();
+        let sidecar = Path::new("/photos/photo.xmp");
+        filesystem.add_file(sidecar);
+        let store = TestSidecarStore::default();
+        assert_eq!(
+            show(
+                Path::new("/photos/photo"),
+                false,
+                false,
+                true,
+                None,
+                &store,
+                &filesystem
+            )
+            .unwrap(),
+            "properties"
+        );
+        assert_eq!(
+            store.calls.borrow().as_slice(),
+            &[StoreCall::Read(
+                sidecar.to_path_buf(),
+                "XMP-dc:Description".into(),
+                true
+            )]
+        );
+    }
+
+    #[test]
+    fn show_propagates_read_errors() {
+        let filesystem = TestFileSystem::default();
+        let sidecar = Path::new("/photos/photo.xmp");
+        filesystem.add_file(sidecar);
+        let error_store = TestSidecarStore {
+            read_error: Some("read failed".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            show(sidecar, true, false, false, None, &error_store, &filesystem).unwrap_err(),
+            "read failed"
+        );
+    }
+
+    #[rstest]
+    #[case(true, true, false, None, "all", false)]
+    #[case(true, false, true, None, "all", true)]
+    #[case(false, true, false, None, BASIC_KEYS.join(","), false)]
+    #[case(false, false, false, None, "XMP-dc:Description".to_string(), false)]
+    #[case(false, false, true, Some("XMP-dc:Creator"), "XMP-dc:Creator".to_string(), true)]
+    #[case(false, true, false, Some("XMP-dc:Creator"), "XMP-dc:Creator".to_string(), false)]
+    fn show_selects_properties_to_read(
+        #[case] all: bool,
+        #[case] basic: bool,
+        #[case] verbose: bool,
+        #[case] key: Option<&str>,
+        #[case] expected_selection: impl Into<String>,
+        #[case] expected_verbose: bool,
+    ) {
+        let filesystem = TestFileSystem::default();
+        let sidecar = Path::new("/photos/photo.xmp");
+        filesystem.add_file(sidecar);
+        let store = TestSidecarStore::default();
+
+        assert!(show(sidecar, all, basic, verbose, key, &store, &filesystem).is_ok());
+        assert_eq!(
+            store.calls.borrow().as_slice(),
+            &[StoreCall::Read(
+                sidecar.into(),
+                expected_selection.into(),
+                expected_verbose
+            )]
+        );
+    }
+
+    #[test]
+    fn show_reports_missing_sidecars_before_validating_keys() {
+        let filesystem = TestFileSystem::default();
+        let store = TestSidecarStore::default();
+        assert!(
+            show(
+                Path::new("/photos/photo.xmp"),
+                false,
+                false,
+                false,
+                Some("bad key"),
+                &store,
+                &filesystem
+            )
+            .unwrap_err()
+            .contains("sidecar not found")
+        );
+        assert!(store.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn show_rejects_invalid_keys_for_existing_sidecars() {
+        let filesystem = TestFileSystem::default();
+        let store = TestSidecarStore::default();
+        filesystem.add_file(Path::new("/photos/photo.xmp"));
+        assert!(
+            show(
+                Path::new("/photos/photo.xmp"),
+                false,
+                false,
+                false,
+                Some("bad key"),
+                &store,
+                &filesystem
+            )
+            .unwrap_err()
+            .contains("invalid XMP key")
+        );
+    }
+
+    #[test]
+    fn set_propagates_target_resolution_errors() {
+        let filesystem = TestFileSystem::default();
+        let store = TestSidecarStore::default();
+        let missing = Path::new("/photos/missing.xmp");
+        assert!(
+            set(missing, "XMP-dc:Description", "value", &store, &filesystem)
+                .unwrap_err()
+                .contains("sidecar not found")
+        );
+    }
+
+    #[test]
+    fn clear_propagates_target_resolution_errors() {
+        let filesystem = TestFileSystem::default();
+        let store = TestSidecarStore::default();
+        let missing = Path::new("/photos/missing.xmp");
+        assert!(
+            clear(missing, "XMP-dc:Description", &store, &filesystem)
+                .unwrap_err()
+                .contains("sidecar not found")
+        );
+    }
+
+    #[test]
+    fn edit_propagates_target_resolution_errors() {
+        let filesystem = TestFileSystem::default();
+        let missing = Path::new("/photos/missing.xmp");
+        assert!(
+            super::edit(missing, &filesystem)
+                .unwrap_err()
+                .contains("sidecar not found")
+        );
+    }
+
+    #[rstest]
+    #[case(None, Ok("updated"))]
+    #[case(Some(Ok(true)), Ok("updated"))]
+    #[case(Some(Ok(false)), Ok("unchanged"))]
+    #[case(Some(Err("write failed".to_string())), Err("write failed"))]
+    fn set_reports_store_outcome(
+        #[case] write_result: Option<Result<bool, String>>,
+        #[case] expected: Result<&str, &str>,
+    ) {
+        let filesystem = TestFileSystem::default();
+        let sidecar = Path::new("/photos/photo.xmp");
+        filesystem.add_file(sidecar);
+        let store = TestSidecarStore {
+            write_result,
+            ..Default::default()
+        };
+
+        let result = set(sidecar, "XMP-dc:Description", "hello", &store, &filesystem);
+
+        assert_eq!(result, expected.map(String::from).map_err(String::from));
+        assert_eq!(
+            store.calls.borrow().as_slice(),
+            &[StoreCall::Write(
+                sidecar.to_path_buf(),
+                "XMP-dc:Description".into(),
+                "hello".into()
+            )]
+        );
+    }
+
+    #[rstest]
+    #[case(None, Ok("cleared"))]
+    #[case(Some(Ok(true)), Ok("cleared"))]
+    #[case(Some(Ok(false)), Ok("unchanged"))]
+    #[case(Some(Err("clear failed".to_string())), Err("clear failed"))]
+    fn clear_reports_store_outcome(
+        #[case] clear_result: Option<Result<bool, String>>,
+        #[case] expected: Result<&str, &str>,
+    ) {
+        let filesystem = TestFileSystem::default();
+        let sidecar = Path::new("/photos/photo.xmp");
+        filesystem.add_file(sidecar);
+        let store = TestSidecarStore {
+            clear_result,
+            ..Default::default()
+        };
+
+        let result = clear(sidecar, "XMP-dc:Description", &store, &filesystem);
+
+        assert_eq!(result, expected.map(String::from).map_err(String::from));
+        assert_eq!(
+            store.calls.borrow().as_slice(),
+            &[StoreCall::Clear(
+                sidecar.to_path_buf(),
+                "XMP-dc:Description".into()
+            )]
+        );
+    }
+
+    #[rstest]
+    #[case("bad key")]
+    #[case("XMP-dc:Description=value")]
+    fn set_rejects_invalid_keys_without_touching_the_store(#[case] key: &str) {
+        let filesystem = TestFileSystem::default();
+        let sidecar = Path::new("/photos/photo.xmp");
+        filesystem.add_file(sidecar);
+        let store = TestSidecarStore::default();
+
+        assert!(
+            set(sidecar, key, "hello", &store, &filesystem)
+                .unwrap_err()
+                .contains("invalid XMP key")
+        );
+        assert!(store.calls.borrow().is_empty());
+    }
+
+    #[rstest]
+    #[case("bad key")]
+    #[case("XMP-dc:Description=value")]
+    fn clear_rejects_invalid_keys_without_touching_the_store(#[case] key: &str) {
+        let filesystem = TestFileSystem::default();
+        let sidecar = Path::new("/photos/photo.xmp");
+        filesystem.add_file(sidecar);
+        let store = TestSidecarStore::default();
+        assert!(
+            clear(sidecar, key, &store, &filesystem)
+                .unwrap_err()
+                .contains("invalid XMP key")
+        );
+        assert!(store.calls.borrow().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_editor_succeeds_for_a_successful_command() {
+        let filesystem = TestFileSystem::default();
+        let sidecar = Path::new("/photos/photo.xmp");
+        filesystem.add_file(sidecar);
+        assert_eq!(run_editor(sidecar, "true"), Ok(()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_editor_reports_a_nonzero_exit_status() {
+        let sidecar = Path::new("/photos/photo.xmp");
+        assert!(
+            run_editor(sidecar, "false")
+                .unwrap_err()
+                .contains("editor failed")
+        );
+    }
+
+    #[test]
+    fn run_editor_rejects_an_empty_command() {
+        let sidecar = Path::new("/photos/photo.xmp");
+        assert!(
+            run_editor(sidecar, "")
+                .unwrap_err()
+                .contains("editor command is empty")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_editor_reports_when_the_command_cannot_be_started() {
+        let sidecar = Path::new("/photos/photo.xmp");
+        assert!(
+            run_editor(sidecar, "pg-no-such-editor-command")
+                .unwrap_err()
+                .contains("cannot start editor")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn edit_requires_an_editor_setting() {
+        let _lock = EDITOR_ENV_LOCK.lock().unwrap();
+        let filesystem = TestFileSystem::default();
+        let sidecar = Path::new("/photos/photo.xmp");
+        filesystem.add_file(sidecar);
+        let _environment = EditorEnv::set(None, None);
+        assert!(
+            super::edit(sidecar, &filesystem)
+                .unwrap_err()
+                .contains("set $VISUAL or $EDITOR")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn edit_falls_back_to_editor_when_visual_is_blank() {
+        let _lock = EDITOR_ENV_LOCK.lock().unwrap();
+        let filesystem = TestFileSystem::default();
+        let sidecar = Path::new("/photos/photo.xmp");
+        filesystem.add_file(sidecar);
+        let _environment = EditorEnv::set(Some("  "), Some("true"));
+        assert_eq!(super::edit(sidecar, &filesystem), Ok(()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn edit_prefers_visual_over_editor() {
+        let _lock = EDITOR_ENV_LOCK.lock().unwrap();
+        let filesystem = TestFileSystem::default();
+        let sidecar = Path::new("/photos/photo.xmp");
+        filesystem.add_file(sidecar);
+        let _environment = EditorEnv::set(Some("false"), Some("true"));
+        assert!(
+            super::edit(sidecar, &filesystem)
+                .unwrap_err()
+                .contains("editor failed")
+        );
     }
 }
