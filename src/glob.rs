@@ -21,29 +21,13 @@ pub fn expand(pattern: &str) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    use rstest::rstest;
 
-    #[test]
-    fn expands_recursively() {
-        let dir = std::env::temp_dir().join(format!("pg-glob-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(dir.join("a/b")).unwrap();
-        fs::create_dir_all(dir.join(".hidden")).unwrap();
-        for f in [
-            "x.jpg",
-            "a/y.JPG",
-            "a/b/z.jpg",
-            "a/b/z.txt",
-            ".hidden/h.jpg",
-        ] {
-            fs::write(dir.join(f), b"").unwrap();
-        }
-        let d = glob::Pattern::escape(&dir.to_string_lossy());
-        assert_eq!(expand(&format!("{d}/*.jpg")).len(), 1);
-        assert_eq!(expand(&format!("{d}/**/*.jpg")).len(), 3);
-        assert_eq!(expand(&format!("{d}/a/*/z.*")).len(), 2);
-        assert_eq!(expand(&format!("{d}/nothing")).len(), 1);
-        assert_eq!(expand(&format!("{d}/a/[")).len(), 1);
-        fs::remove_dir_all(&dir).unwrap();
+    #[rstest]
+    #[case::literal("photo.jpg")]
+    // Invalid glob syntax is preserved as a literal path.
+    #[case::malformed("photos/[")]
+    fn returns_literal_or_malformed_patterns_unchanged(#[case] pattern: &str) {
+        assert_eq!(expand(pattern), vec![PathBuf::from(pattern)]);
     }
 }

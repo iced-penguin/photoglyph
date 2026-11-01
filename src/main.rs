@@ -179,6 +179,7 @@ fn main() -> ExitCode {
 fn expand_all(patterns: &[String]) -> Vec<PathBuf> {
     patterns
         .iter()
+        // TODO: Depend on a glob-expansion port rather than the concrete implementation.
         .flat_map(|pattern| glob::expand(pattern))
         .collect()
 }
