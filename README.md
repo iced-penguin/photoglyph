@@ -5,7 +5,7 @@ Photoglyph is for photographers who want to describe and organize their photos w
 ## Requirements
 
 - ExifTool
-- Rust >= 1.85
+- Rust >= 1.99.1
 
 To install ExifTool, for example on macOS: `brew install exiftool`
 
