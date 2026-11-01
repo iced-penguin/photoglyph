@@ -30,12 +30,10 @@ Rules:
 Run all three before declaring work done. They must pass with no warnings.
 
 ```sh
-cargo fmt --all
-cargo clippy --all-targets -- -D warnings
-cargo test --all-targets
+cargo format
+cargo lint
+cargo test
 ```
-
-CI (`.github/workflows/quality.yml`) runs `format`, `clippy`, and `test` as separate parallel jobs on pull requests (`cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --all-targets`) using the pinned Rust 1.99.1 toolchain. All three are required checks on `main`.
 
 ## Testing
 

@@ -1,0 +1,5 @@
+[alias]
+format = "fmt --all"
+format-check = "fmt --all -- --check"
+lint = "clippy --all-targets -- -D warnings"
+coverage = "llvm-cov --all-targets --ignore-filename-regex (^|/)src/(main|exiftool|filesystem|glob|usecase_test_helpers)\\.rs$ --fail-uncovered-lines 0"
