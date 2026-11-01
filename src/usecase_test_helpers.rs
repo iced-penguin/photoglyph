@@ -22,14 +22,14 @@ pub(super) struct FsState {
 impl TestFileSystem {
     pub(super) fn add_file(&self, path: &Path) {
         let mut state = self.0.borrow_mut();
-        if state.files.insert(path.to_path_buf()) {
-            if let Some(parent) = path.parent() {
-                state
-                    .directories
-                    .entry(parent.to_path_buf())
-                    .or_default()
-                    .push(path.to_path_buf());
-            }
+        if state.files.insert(path.to_path_buf())
+            && let Some(parent) = path.parent()
+        {
+            state
+                .directories
+                .entry(parent.to_path_buf())
+                .or_default()
+                .push(path.to_path_buf());
         }
     }
 
@@ -79,10 +79,10 @@ impl FileSystem for TestFileSystem {
         if !state.files.remove(path) {
             return Err(io::Error::from(ErrorKind::NotFound));
         }
-        if let Some(parent) = path.parent() {
-            if let Some(entries) = state.directories.get_mut(parent) {
-                entries.retain(|entry| entry != path);
-            }
+        if let Some(parent) = path.parent()
+            && let Some(entries) = state.directories.get_mut(parent)
+        {
+            entries.retain(|entry| entry != path);
         }
         Ok(())
     }

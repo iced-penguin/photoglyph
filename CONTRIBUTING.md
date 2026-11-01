@@ -2,7 +2,7 @@
 
 ## Environment setup
 
-- Install Rust 1.85 or later with [rustup](https://rustup.rs/).
+- Install Rust 1.99 or later with [rustup](https://rustup.rs/).
 - Install ExifTool (on macOS: `brew install exiftool`).
 
 ## Build
