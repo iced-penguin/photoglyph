@@ -29,3 +29,8 @@ pub trait FileSystem {
     fn remove_file(&self, path: &Path) -> io::Result<()>;
     fn install_sidecar(&self, temporary: &Path, sidecar: &Path, replace: bool) -> io::Result<()>;
 }
+
+/// Expands a CLI path pattern into the paths it denotes.
+pub trait GlobExpander {
+    fn expand(&self, pattern: &str) -> Vec<PathBuf>;
+}

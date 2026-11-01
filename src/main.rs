@@ -5,7 +5,7 @@ mod port;
 mod usecase;
 
 use clap::{Args, Parser, Subcommand};
-use port::SidecarStore;
+use port::{GlobExpander, SidecarStore};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -101,6 +101,7 @@ fn main() -> ExitCode {
     };
     let exiftool = exiftool::ExifTool::default();
     let filesystem = filesystem::LocalFileSystem;
+    let globber = glob::ShellGlob;
     if let Err(error) = exiftool.ensure_available() {
         eprintln!("pg: {error}");
         return ExitCode::from(1);
@@ -109,7 +110,7 @@ fn main() -> ExitCode {
     let mut failed = false;
     match cli.command {
         Command::Export { force, targets } => {
-            for image in expand_all(&targets) {
+            for image in expand_all(&targets, &globber) {
                 report(
                     image.display(),
                     usecase::export(&image, force, &exiftool, &filesystem),
@@ -123,7 +124,7 @@ fn main() -> ExitCode {
             targets,
         } => {
             let key = display.key.as_deref();
-            for target in expand_all(&targets) {
+            for target in expand_all(&targets, &globber) {
                 let result = usecase::show(
                     &target,
                     display.all,
@@ -176,11 +177,10 @@ fn main() -> ExitCode {
     }
 }
 
-fn expand_all(patterns: &[String]) -> Vec<PathBuf> {
+fn expand_all(patterns: &[String], globber: &impl GlobExpander) -> Vec<PathBuf> {
     patterns
         .iter()
-        // TODO: Depend on a glob-expansion port rather than the concrete implementation.
-        .flat_map(|pattern| glob::expand(pattern))
+        .flat_map(|pattern| globber.expand(pattern))
         .collect()
 }
 
@@ -211,9 +211,32 @@ fn report_silently<T>(
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Command};
+    use super::{Cli, Command, expand_all};
+    use crate::port::GlobExpander;
     use clap::{Parser, error::ErrorKind};
     use rstest::rstest;
+    use std::path::PathBuf;
+
+    struct FakeGlob;
+
+    impl GlobExpander for FakeGlob {
+        fn expand(&self, pattern: &str) -> Vec<PathBuf> {
+            match pattern {
+                "*.jpg" => vec![PathBuf::from("a.jpg"), PathBuf::from("b.jpg")],
+                "*.none" => vec![],
+                other => vec![PathBuf::from(other)],
+            }
+        }
+    }
+
+    #[test]
+    fn expand_all_flattens_expansions_in_order() {
+        let patterns = ["x.nef", "*.jpg", "*.none", "y.nef"].map(String::from);
+        assert_eq!(
+            expand_all(&patterns, &FakeGlob),
+            ["x.nef", "a.jpg", "b.jpg", "y.nef"].map(PathBuf::from)
+        );
+    }
 
     fn parse(args: &[&str]) -> Command {
         Cli::try_parse_from(args).unwrap().command
