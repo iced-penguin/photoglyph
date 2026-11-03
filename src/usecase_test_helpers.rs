@@ -1,4 +1,4 @@
-use crate::port::{FileSystem, Selection, SidecarStore};
+use crate::port::{Editor, FileSystem, Selection, SidecarStore};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, ErrorKind};
@@ -182,48 +182,15 @@ impl SidecarStore for TestSidecarStore {
     }
 }
 
-#[cfg(unix)]
-pub(super) static EDITOR_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-#[cfg(unix)]
-pub(super) struct EditorEnv {
-    visual: Option<std::ffi::OsString>,
-    editor: Option<std::ffi::OsString>,
+#[derive(Default)]
+pub(super) struct TestEditor {
+    pub(super) error: Option<String>,
+    pub(super) opened: RefCell<Vec<PathBuf>>,
 }
 
-#[cfg(unix)]
-impl EditorEnv {
-    pub(super) fn set(visual: Option<&str>, editor: Option<&str>) -> Self {
-        let old = Self {
-            visual: std::env::var_os("VISUAL"),
-            editor: std::env::var_os("EDITOR"),
-        };
-        unsafe {
-            match visual {
-                Some(value) => std::env::set_var("VISUAL", value),
-                None => std::env::remove_var("VISUAL"),
-            }
-            match editor {
-                Some(value) => std::env::set_var("EDITOR", value),
-                None => std::env::remove_var("EDITOR"),
-            }
-        }
-        old
-    }
-}
-
-#[cfg(unix)]
-impl Drop for EditorEnv {
-    fn drop(&mut self) {
-        unsafe {
-            match &self.visual {
-                Some(value) => std::env::set_var("VISUAL", value),
-                None => std::env::remove_var("VISUAL"),
-            }
-            match &self.editor {
-                Some(value) => std::env::set_var("EDITOR", value),
-                None => std::env::remove_var("EDITOR"),
-            }
-        }
+impl Editor for TestEditor {
+    fn open(&self, sidecar: &Path) -> Result<(), String> {
+        self.opened.borrow_mut().push(sidecar.to_path_buf());
+        self.error.clone().map_or(Ok(()), Err)
     }
 }

@@ -1,3 +1,4 @@
+mod editor;
 mod exiftool;
 mod filesystem;
 mod glob;
@@ -166,7 +167,7 @@ fn main() -> ExitCode {
         }
         Command::Edit { target } => report_silently(
             &target,
-            usecase::edit(target.as_ref(), &filesystem),
+            usecase::edit(target.as_ref(), &editor::EnvEditor, &filesystem),
             &mut failed,
         ),
     }

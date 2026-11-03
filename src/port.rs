@@ -30,6 +30,11 @@ pub trait FileSystem {
     fn install_sidecar(&self, temporary: &Path, sidecar: &Path, replace: bool) -> io::Result<()>;
 }
 
+/// Opens a sidecar for interactive editing and waits until editing finishes.
+pub trait Editor {
+    fn open(&self, sidecar: &Path) -> Result<(), String>;
+}
+
 /// Expands a CLI path pattern into the paths it denotes.
 pub trait GlobExpander {
     fn expand(&self, pattern: &str) -> Vec<PathBuf>;

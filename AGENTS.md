@@ -8,13 +8,14 @@ Guidance for AI coding agents working in this repository. For human-oriented set
 
 ## Architecture
 
-Dependencies point inward: `main` -> `usecase` -> `port` <- `exiftool` / `filesystem`.
+Dependencies point inward: `main` -> `usecase` -> `port` <- `exiftool` / `filesystem` / `editor`.
 
 | File | Role |
 | --- | --- |
-| [src/port.rs](src/port.rs) | Traits (`SidecarStore`, `FileSystem`) that define what use cases need from the outside world. |
+| [src/port.rs](src/port.rs) | Traits (`SidecarStore`, `FileSystem`, `Editor`) that define what use cases need from the outside world. |
 | [src/usecase.rs](src/usecase.rs) | Business logic (`export`, `show`, `set`, `clear`, `edit`). Depends only on `port` traits, never on concrete implementations. |
 | [src/exiftool.rs](src/exiftool.rs) | `SidecarStore` implementation that shells out to ExifTool. |
+| [src/editor.rs](src/editor.rs) | `Editor` implementation that launches `$VISUAL` / `$EDITOR`. |
 | [src/filesystem.rs](src/filesystem.rs) | `FileSystem` implementation backed by `std::fs`. |
 | [src/glob.rs](src/glob.rs) | Glob expansion of CLI path arguments. |
 | [src/main.rs](src/main.rs) | clap CLI definition, wiring of implementations into use cases, output and exit codes. |
@@ -38,7 +39,7 @@ cargo test
 ## Testing
 
 - Every behavior change or bug fix needs a test. Add tests in a `#[cfg(test)] mod tests` at the bottom of the relevant file.
-- Test use cases with fake `SidecarStore` / `FileSystem` implementations (see `usecase.rs` tests). Tests must not require ExifTool to be installed and must not call it.
+- Test use cases with fake `SidecarStore` / `FileSystem` / `Editor` implementations (see `usecase.rs` tests). Tests must not require ExifTool to be installed and must not call it.
 - Use temporary directories for filesystem tests; never write to or modify files in `sample/`.
 
 ## Boundaries
