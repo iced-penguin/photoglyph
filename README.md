@@ -2,10 +2,22 @@
 
 Photoglyph is for photographers who want to describe and organize their photos without changing the image files themselves. It treats metadata as a separate, editable layer: export it to an XMP sidecar beside the image, then inspect or update that sidecar while leaving the original untouched. Because the sidecar is an ordinary file, it can be kept, backed up, and moved along with the photo.
 
+## Quick start
+
+With ExifTool installed, export a photo's metadata, inspect it, and add a description:
+
+```sh
+pg export photo.jpg
+pg show photo
+pg set photo "A quiet morning by the lake"
+```
+
+`pg --help` lists the commands, and `pg <command> --help` shows details for a specific command. Metadata is written to the `.xmp` sidecar; the image file is not modified.
+
 ## Requirements
 
 - [ExifTool](https://exiftool.org/)
-- Rust >= 1.99.1
+- Rust 1.99.1 or later is required to install photoglyph with Cargo.
 
 ## Features
 

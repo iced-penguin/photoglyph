@@ -2,7 +2,7 @@
 
 ## Environment setup
 
-- Install Rust 1.99 or later with [rustup](https://rustup.rs/).
+- Install Rust 1.99.1 with [rustup](https://rustup.rs/); this is the toolchain used for development and CI.
 - Install ExifTool (on macOS: `brew install exiftool`).
 - Enable the repository's Git hooks once per clone: `git config core.hooksPath .githooks`. The pre-commit hook rejects commits on `main` and runs `cargo format-check` and `cargo lint` when Rust files change.
 
