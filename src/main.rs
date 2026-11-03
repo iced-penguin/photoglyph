@@ -1,3 +1,4 @@
+mod editor;
 mod exiftool;
 mod filesystem;
 mod glob;
@@ -100,6 +101,7 @@ fn main() -> ExitCode {
         }
     };
     let exiftool = exiftool::ExifTool::default();
+    let editor = editor::EnvEditor;
     let filesystem = filesystem::LocalFileSystem;
     let globber = glob::ShellGlob;
     if let Err(error) = exiftool.ensure_available() {
@@ -166,7 +168,7 @@ fn main() -> ExitCode {
         }
         Command::Edit { target } => report_silently(
             &target,
-            usecase::edit(target.as_ref(), &filesystem),
+            usecase::edit(target.as_ref(), &editor, &filesystem),
             &mut failed,
         ),
     }

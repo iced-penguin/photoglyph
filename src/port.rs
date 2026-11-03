@@ -21,6 +21,11 @@ pub trait SidecarStore {
     fn clear_property(&self, sidecar: &Path, key: &str) -> Result<bool, String>;
 }
 
+/// Opens a sidecar in the user's editor and waits for it to exit.
+pub trait Editor {
+    fn edit(&self, sidecar: &Path) -> Result<(), String>;
+}
+
 pub trait FileSystem {
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf>;
     fn is_file(&self, path: &Path) -> bool;
