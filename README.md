@@ -17,7 +17,7 @@ pg set photo "A quiet morning by the lake"
 ## Requirements
 
 - [ExifTool](https://exiftool.org/)
-- Rust >= 1.99.1
+- Rust 1.99.1 or later is required to install photoglyph with Cargo.
 
 ## Features
 
