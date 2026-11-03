@@ -1,4 +1,4 @@
-use crate::port::Editor;
+use crate::ports::Editor;
 use std::env;
 use std::path::Path;
 use std::process::Command;
@@ -39,7 +39,7 @@ mod tests {
     use super::EnvEditor;
     use super::run_editor;
     #[cfg(unix)]
-    use crate::port::Editor;
+    use crate::ports::Editor;
     use std::path::Path;
 
     #[cfg(unix)]

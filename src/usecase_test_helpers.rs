@@ -1,4 +1,4 @@
-use crate::port::{Editor, FileSystem, Selection, SidecarStore};
+use crate::ports::{Editor, FileSystem, Selection, SidecarStore};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, ErrorKind};

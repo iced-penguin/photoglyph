@@ -1,4 +1,4 @@
-use crate::port::{Selection, SidecarStore};
+use crate::ports::{Selection, SidecarStore};
 use std::ffi::OsString;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};

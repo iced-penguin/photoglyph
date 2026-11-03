@@ -8,21 +8,17 @@ Guidance for AI coding agents working in this repository. For human-oriented set
 
 ## Architecture
 
-Dependencies point inward: `main` -> `usecase` -> `port` <- `exiftool` / `filesystem`.
+Dependencies point inward: `main` -> `usecase` -> `ports` <- `adapters`.
 
-| File | Role |
-| --- | --- |
-| [src/port.rs](src/port.rs) | Traits (`SidecarStore`, `FileSystem`) that define what use cases need from the outside world. |
-| [src/usecase.rs](src/usecase.rs) | Business logic (`export`, `show`, `set`, `clear`, `edit`). Depends only on `port` traits, never on concrete implementations. |
-| [src/exiftool.rs](src/exiftool.rs) | `SidecarStore` implementation that shells out to ExifTool. |
-| [src/filesystem.rs](src/filesystem.rs) | `FileSystem` implementation backed by `std::fs`. |
-| [src/glob.rs](src/glob.rs) | Glob expansion of CLI path arguments. |
-| [src/main.rs](src/main.rs) | clap CLI definition, wiring of implementations into use cases, output and exit codes. |
+- [`src/main.rs`](src/main.rs) defines the clap CLI, wires implementations into use cases, and handles output and exit codes.
+- [`src/usecase.rs`](src/usecase.rs) contains business logic (`export`, `show`, `set`, `clear`, `edit`) and depends only on port traits.
+- [`src/ports/`](src/ports/) defines the interfaces use cases need: `SidecarStore` (and its `Selection` type), `FileSystem`, `GlobExpander`, and `Editor`.
+- [`src/adapters/`](src/adapters/) implements the external capabilities: ExifTool-backed sidecar storage, `std::fs`-backed filesystem operations, CLI glob expansion, and the `$VISUAL`/`$EDITOR`-backed implementation of `Editor`.
 
 Rules:
 
 - Put new behavior in `usecase.rs`. Keep `main.rs` limited to argument parsing, wiring, and reporting.
-- When a use case needs a new external capability, add a method to the trait in `port.rs` and implement it in the concrete module. Do not call `std::fs` or `Command` directly from use-case logic.
+- When a use case needs a new external capability, add a method to the appropriate trait in `ports/` and implement it in `adapters/`. Do not call `std::fs` or `Command` directly from use-case logic.
 - Errors are returned as `Result<_, String>` with user-readable messages (current convention; follow it unless asked to change it).
 
 ## Commands

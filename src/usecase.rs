@@ -1,4 +1,4 @@
-use crate::port::{Editor, FileSystem, Selection, SidecarStore};
+use crate::ports::{Editor, FileSystem, Selection, SidecarStore};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
@@ -251,7 +251,7 @@ mod tests {
         BASIC_KEYS, clear, export, find_stem_collision, is_image, is_xmp, parent_or_current_dir,
         resolve_xmp_target, set, show, validate_key,
     };
-    use crate::port::FileSystem;
+    use crate::ports::FileSystem;
     use std::io::ErrorKind;
     use std::path::Path;
     use std::path::PathBuf;

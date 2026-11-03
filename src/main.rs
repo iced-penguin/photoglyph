@@ -1,12 +1,10 @@
-mod editor;
-mod exiftool;
-mod filesystem;
-mod glob;
-mod port;
+mod adapters;
+mod ports;
 mod usecase;
 
+use adapters::{editor, exiftool, filesystem, glob};
 use clap::{Args, Parser, Subcommand};
-use port::{GlobExpander, SidecarStore};
+use ports::{GlobExpander, SidecarStore};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -214,7 +212,7 @@ fn report_silently<T>(
 #[cfg(test)]
 mod tests {
     use super::{Cli, Command, expand_all};
-    use crate::port::GlobExpander;
+    use crate::ports::GlobExpander;
     use clap::{Parser, error::ErrorKind};
     use rstest::rstest;
     use std::path::PathBuf;
