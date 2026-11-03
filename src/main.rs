@@ -5,7 +5,7 @@ mod usecase;
 use adapters::{editor, exiftool, filesystem, glob};
 use clap::{Args, Parser, Subcommand};
 use ports::{GlobExpander, SidecarStore};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 /// Export and edit XMP sidecars without writing metadata into image files.
@@ -124,7 +124,10 @@ fn main() -> ExitCode {
             targets,
         } => {
             let key = display.key.as_deref();
-            for target in expand_all(&targets, &globber) {
+            let expanded = expand_all(&targets, &globber);
+            let labeled = expanded.len() > 1;
+            let mut printed = false;
+            for target in expanded {
                 let result = usecase::show(
                     &target,
                     display.all,
@@ -136,7 +139,13 @@ fn main() -> ExitCode {
                 );
                 match result {
                     Ok(text) if text.is_empty() => {}
-                    Ok(text) => println!("{text}"),
+                    Ok(text) => {
+                        if labeled && printed {
+                            println!();
+                        }
+                        println!("{}", format_show_output(&target, &text, labeled));
+                        printed = true;
+                    }
                     Err(error) => {
                         eprintln!("{}: error: {error}", target.display());
                         failed = true;
@@ -209,13 +218,21 @@ fn report_silently<T>(
     }
 }
 
+fn format_show_output(target: &Path, text: &str, labeled: bool) -> String {
+    if labeled {
+        format!("== {} ==\n{text}", target.display())
+    } else {
+        text.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Command, expand_all};
+    use super::{Cli, Command, expand_all, format_show_output};
     use crate::ports::GlobExpander;
     use clap::{Parser, error::ErrorKind};
     use rstest::rstest;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     struct FakeGlob;
 
@@ -227,6 +244,23 @@ mod tests {
                 other => vec![PathBuf::from(other)],
             }
         }
+    }
+
+    #[rstest]
+    #[case::multiple(
+        "a/x.xmp",
+        "XMP-dc:Description: A",
+        true,
+        "== a/x.xmp ==\nXMP-dc:Description: A"
+    )]
+    #[case::single("a/x.xmp", "XMP-dc:Description: A", false, "XMP-dc:Description: A")]
+    fn formats_show_output(
+        #[case] path: &str,
+        #[case] text: &str,
+        #[case] labeled: bool,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(format_show_output(Path::new(path), text, labeled), expected);
     }
 
     #[test]
