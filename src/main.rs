@@ -111,11 +111,8 @@ fn main() -> ExitCode {
     match cli.command {
         Command::Export { force, targets } => {
             for image in expand_all(&targets, &globber) {
-                report(
-                    image.display(),
-                    usecase::export(&image, force, &exiftool, &filesystem),
-                    &mut failed,
-                );
+                let result = usecase::export(&image, force, &exiftool, &filesystem);
+                report_export(image.display(), result, &mut failed, &mut std::io::stderr());
             }
         }
         Command::Show {
@@ -198,6 +195,21 @@ fn report<T: std::fmt::Display>(
     }
 }
 
+fn report_export(
+    target: impl std::fmt::Display,
+    result: Result<usecase::ExportReport, String>,
+    failed: &mut bool,
+    stderr: &mut impl std::io::Write,
+) {
+    let result = result.map(|report| {
+        for warning in &report.warnings {
+            let _ = writeln!(stderr, "{warning}");
+        }
+        report.message
+    });
+    report(target, result, failed);
+}
+
 fn report_silently<T>(
     target: impl std::fmt::Display,
     result: Result<T, String>,
@@ -211,8 +223,9 @@ fn report_silently<T>(
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Command, expand_all};
+    use super::{Cli, Command, expand_all, report_export};
     use crate::ports::GlobExpander;
+    use crate::usecase::ExportReport;
     use clap::{Parser, error::ErrorKind};
     use rstest::rstest;
     use std::path::PathBuf;
@@ -372,6 +385,28 @@ mod tests {
         };
         assert_eq!(display.key.as_deref(), Some("XMP-dc:Creator"));
         assert!(verbose);
+    }
+
+    #[test]
+    fn report_export_writes_warnings_to_stderr_once() {
+        let mut failed = false;
+        let mut stderr = Vec::new();
+        let report = ExportReport {
+            message: "exported to a.xmp".into(),
+            warnings: vec!["warning: x".into()],
+        };
+        report_export("a.jpg", Ok(report), &mut failed, &mut stderr);
+        assert_eq!(String::from_utf8(stderr).unwrap(), "warning: x\n");
+        assert!(!failed);
+    }
+
+    #[test]
+    fn report_export_writes_no_warnings_on_error() {
+        let mut failed = false;
+        let mut stderr = Vec::new();
+        report_export("a.jpg", Err("bad".into()), &mut failed, &mut stderr);
+        assert!(stderr.is_empty());
+        assert!(failed);
     }
 
     #[test]

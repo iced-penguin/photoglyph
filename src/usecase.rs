@@ -13,22 +13,29 @@ const BASIC_KEYS: &[&str] = &[
     "XMP-xmp:Rating",
     "XMP-photoshop:DateCreated",
 ];
+#[derive(Debug, PartialEq, Eq)]
+pub struct ExportReport {
+    pub message: String,
+    pub warnings: Vec<String>,
+}
+
 pub fn export(
     image: &Path,
     force: bool,
     tool: &impl SidecarStore,
     filesystem: &impl FileSystem,
-) -> Result<String, String> {
+) -> Result<ExportReport, String> {
+    let mut warnings = Vec::new();
     if !is_image(image) {
         return Err("export requires a supported image path".into());
     }
     let image = canonical(image, filesystem)?;
     if let Some(collision) = find_stem_collision(&image, filesystem)? {
         if force {
-            eprintln!(
+            warnings.push(format!(
                 "warning: sidecar basename is ambiguous with {}; proceeding because --force was specified",
                 collision.display()
-            );
+            ));
         } else {
             return Err(stem_collision_error(&collision));
         }
@@ -59,7 +66,10 @@ pub fn export(
             format!("cannot install sidecar {}: {error}", sidecar.display())
         });
     }
-    Ok(format!("exported to {}", sidecar.display()))
+    Ok(ExportReport {
+        message: format!("exported to {}", sidecar.display()),
+        warnings,
+    })
 }
 
 pub fn show(
@@ -248,8 +258,8 @@ mod test_helpers;
 mod tests {
     use super::test_helpers::{StoreCall, TestEditor, TestFileSystem, TestSidecarStore};
     use super::{
-        BASIC_KEYS, clear, export, find_stem_collision, is_image, is_xmp, parent_or_current_dir,
-        resolve_xmp_target, set, show, validate_key,
+        BASIC_KEYS, ExportReport, clear, export, find_stem_collision, is_image, is_xmp,
+        parent_or_current_dir, resolve_xmp_target, set, show, validate_key,
     };
     use crate::ports::FileSystem;
     use std::io::ErrorKind;
@@ -525,7 +535,10 @@ mod tests {
 
         assert_eq!(
             export(image, false, &store, &filesystem).unwrap(),
-            "exported to /photos/photo.xmp"
+            ExportReport {
+                message: "exported to /photos/photo.xmp".into(),
+                warnings: Vec::new(),
+            }
         );
         assert!(filesystem.is_file(sidecar));
         assert_eq!(filesystem.file_count(), 2);
@@ -621,7 +634,31 @@ mod tests {
             export_creates_file: true,
             ..Default::default()
         };
-        assert!(export(image, true, &store, &filesystem).is_ok());
+        let report = export(image, true, &store, &filesystem).unwrap();
+        assert_eq!(
+            report.warnings,
+            [
+                "warning: sidecar basename is ambiguous with /photos/photo.NEF; proceeding because --force was specified"
+            ]
+        );
+    }
+
+    #[test]
+    fn export_with_force_without_collision_has_no_warnings() {
+        let filesystem = TestFileSystem::default();
+        let image = Path::new("/photos/photo.jpg");
+        filesystem.add_file(image);
+        let store = TestSidecarStore {
+            filesystem: filesystem.clone(),
+            export_creates_file: true,
+            ..Default::default()
+        };
+        assert!(
+            export(image, true, &store, &filesystem)
+                .unwrap()
+                .warnings
+                .is_empty()
+        );
     }
 
     #[test]
