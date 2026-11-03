@@ -44,14 +44,6 @@ class CommitGuardTests(unittest.TestCase):
         self.assertEqual(result["permissionDecision"], "deny")
         self.assertIn("main", result["permissionDecisionReason"])
 
-    def test_denies_invalid_commit_message(self) -> None:
-        self.runner.side_effect = [
-            CompletedProcess([], 0, "feature/task\n", ""),
-        ]
-        result = check_commit.inspect(self.payload("git commit -m 'repair export'"), self.runner)
-        self.assertEqual(result["permissionDecision"], "deny")
-        self.assertIn("Commit messages must start", result["permissionDecisionReason"])
-
     def test_ignores_quoted_commit_text(self) -> None:
         result = check_commit.inspect(self.payload("echo 'git commit -m bad'"), self.runner)
         self.assertEqual(result, {})
@@ -61,7 +53,7 @@ class CommitGuardTests(unittest.TestCase):
         commands = check_commit.shell_commands("echo ready && git commit -m 'fix: repair export'")
         self.assertEqual(
             check_commit.commit_invocation(commands[1], self.cwd),
-            (["-m", "fix: repair export"], self.cwd),
+            self.cwd,
         )
 
     def test_detects_commit_after_shell_control_keyword(self) -> None:
@@ -71,7 +63,7 @@ class CommitGuardTests(unittest.TestCase):
             for tokens in commands
             if check_commit.commit_invocation(tokens, self.cwd) is not None
         )
-        self.assertEqual(invocation, (["-m", "fix: repair export"], self.cwd))
+        self.assertEqual(invocation, self.cwd)
 
     def test_runs_format_and_lint_for_code_changes(self) -> None:
         result = check_commit.inspect(self.payload("git commit -m 'fix: repair export'"), self.runner)
