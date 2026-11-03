@@ -1,8 +1,6 @@
-use crate::port::{FileSystem, Selection, SidecarStore};
-use std::env;
+use crate::port::{Editor, FileSystem, Selection, SidecarStore};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 pub const DEFAULT_COMMENT: &str = "XMP-dc:Description";
 const EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "nef", "tif", "tiff", "dng"];
@@ -110,30 +108,13 @@ pub fn clear(
         .map(|updated| if updated { "cleared" } else { "unchanged" }.into())
 }
 
-pub fn edit(target: &Path, filesystem: &impl FileSystem) -> Result<(), String> {
+pub fn edit(
+    target: &Path,
+    editor: &impl Editor,
+    filesystem: &impl FileSystem,
+) -> Result<(), String> {
     let sidecar = resolve_xmp_target(target, filesystem)?;
-    let editor = env::var("VISUAL")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .or_else(|| env::var("EDITOR").ok().filter(|s| !s.trim().is_empty()))
-        .ok_or("set $VISUAL or $EDITOR to an editor command")?;
-    run_editor(&sidecar, &editor)
-}
-
-// TODO: Move editor selection and invocation behind a port to keep use cases independent of process management.
-fn run_editor(sidecar: &Path, editor: &str) -> Result<(), String> {
-    let mut parts = editor.split_whitespace();
-    let executable = parts.next().ok_or("editor command is empty")?;
-    let status = Command::new(executable)
-        .args(parts)
-        .arg(sidecar)
-        .status()
-        .map_err(|error| format!("cannot start editor: {error}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("editor failed ({status})"))
-    }
+    editor.edit(&sidecar)
 }
 
 fn write_property(
@@ -265,12 +246,10 @@ mod test_helpers;
 
 #[cfg(test)]
 mod tests {
-    #[cfg(unix)]
-    use super::test_helpers::{EDITOR_ENV_LOCK, EditorEnv};
-    use super::test_helpers::{StoreCall, TestFileSystem, TestSidecarStore};
+    use super::test_helpers::{StoreCall, TestEditor, TestFileSystem, TestSidecarStore};
     use super::{
         BASIC_KEYS, clear, export, find_stem_collision, is_image, is_xmp, parent_or_current_dir,
-        resolve_xmp_target, run_editor, set, show, validate_key,
+        resolve_xmp_target, set, show, validate_key,
     };
     use crate::port::FileSystem;
     use std::io::ErrorKind;
@@ -789,7 +768,7 @@ mod tests {
         let filesystem = TestFileSystem::default();
         let missing = Path::new("/photos/missing.xmp");
         assert!(
-            super::edit(missing, &filesystem)
+            super::edit(missing, &TestEditor::default(), &filesystem)
                 .unwrap_err()
                 .contains("sidecar not found")
         );
@@ -887,85 +866,28 @@ mod tests {
         assert!(store.calls.borrow().is_empty());
     }
 
-    #[cfg(unix)]
     #[test]
-    fn run_editor_succeeds_for_a_successful_command() {
+    fn edit_opens_the_resolved_sidecar_in_the_editor() {
         let filesystem = TestFileSystem::default();
         let sidecar = Path::new("/photos/photo.xmp");
         filesystem.add_file(sidecar);
-        assert_eq!(run_editor(sidecar, "true"), Ok(()));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn run_editor_reports_a_nonzero_exit_status() {
-        let sidecar = Path::new("/photos/photo.xmp");
-        assert!(
-            run_editor(sidecar, "false")
-                .unwrap_err()
-                .contains("editor failed")
-        );
+        let editor = TestEditor::default();
+        assert_eq!(super::edit(sidecar, &editor, &filesystem), Ok(()));
+        assert_eq!(*editor.calls.borrow(), vec![sidecar.to_path_buf()]);
     }
 
     #[test]
-    fn run_editor_rejects_an_empty_command() {
-        let sidecar = Path::new("/photos/photo.xmp");
-        assert!(
-            run_editor(sidecar, "")
-                .unwrap_err()
-                .contains("editor command is empty")
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn run_editor_reports_when_the_command_cannot_be_started() {
-        let sidecar = Path::new("/photos/photo.xmp");
-        assert!(
-            run_editor(sidecar, "pg-no-such-editor-command")
-                .unwrap_err()
-                .contains("cannot start editor")
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn edit_requires_an_editor_setting() {
-        let _lock = EDITOR_ENV_LOCK.lock().unwrap();
+    fn edit_propagates_editor_errors() {
         let filesystem = TestFileSystem::default();
         let sidecar = Path::new("/photos/photo.xmp");
         filesystem.add_file(sidecar);
-        let _environment = EditorEnv::set(None, None);
-        assert!(
-            super::edit(sidecar, &filesystem)
-                .unwrap_err()
-                .contains("set $VISUAL or $EDITOR")
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn edit_falls_back_to_editor_when_visual_is_blank() {
-        let _lock = EDITOR_ENV_LOCK.lock().unwrap();
-        let filesystem = TestFileSystem::default();
-        let sidecar = Path::new("/photos/photo.xmp");
-        filesystem.add_file(sidecar);
-        let _environment = EditorEnv::set(Some("  "), Some("true"));
-        assert_eq!(super::edit(sidecar, &filesystem), Ok(()));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn edit_prefers_visual_over_editor() {
-        let _lock = EDITOR_ENV_LOCK.lock().unwrap();
-        let filesystem = TestFileSystem::default();
-        let sidecar = Path::new("/photos/photo.xmp");
-        filesystem.add_file(sidecar);
-        let _environment = EditorEnv::set(Some("false"), Some("true"));
-        assert!(
-            super::edit(sidecar, &filesystem)
-                .unwrap_err()
-                .contains("editor failed")
+        let editor = TestEditor {
+            error: Some("editor failed".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            super::edit(sidecar, &editor, &filesystem),
+            Err("editor failed".into())
         );
     }
 }
