@@ -8,21 +8,25 @@ Guidance for AI coding agents working in this repository. For human-oriented set
 
 ## Architecture
 
-Dependencies point inward: `main` -> `usecase` -> `port` <- `exiftool` / `filesystem`.
+Dependencies point inward: `main` -> `usecase` -> `ports` <- `adapters`.
 
 | File | Role |
 | --- | --- |
-| [src/port.rs](src/port.rs) | Traits (`SidecarStore`, `FileSystem`) that define what use cases need from the outside world. |
-| [src/usecase.rs](src/usecase.rs) | Business logic (`export`, `show`, `set`, `clear`, `edit`). Depends only on `port` traits, never on concrete implementations. |
-| [src/exiftool.rs](src/exiftool.rs) | `SidecarStore` implementation that shells out to ExifTool. |
-| [src/filesystem.rs](src/filesystem.rs) | `FileSystem` implementation backed by `std::fs`. |
-| [src/glob.rs](src/glob.rs) | Glob expansion of CLI path arguments. |
+| [src/ports/sidecar_store.rs](src/ports/sidecar_store.rs) | `SidecarStore` and its `Selection` type. |
+| [src/ports/filesystem.rs](src/ports/filesystem.rs) | `FileSystem` trait. |
+| [src/ports/glob_expander.rs](src/ports/glob_expander.rs) | `GlobExpander` trait. |
+| [src/ports/mod.rs](src/ports/mod.rs) | Re-exports port traits and defines the existing `Editor` port. |
+| [src/adapters/exiftool.rs](src/adapters/exiftool.rs) | `SidecarStore` implementation that shells out to ExifTool. |
+| [src/adapters/filesystem.rs](src/adapters/filesystem.rs) | `FileSystem` implementation backed by `std::fs`. |
+| [src/adapters/glob.rs](src/adapters/glob.rs) | `GlobExpander` implementation and glob expansion of CLI path arguments. |
 | [src/main.rs](src/main.rs) | clap CLI definition, wiring of implementations into use cases, output and exit codes. |
+| [src/usecase.rs](src/usecase.rs) | Business logic (`export`, `show`, `set`, `clear`, `edit`). Depends only on port traits, never on concrete implementations. |
+| [src/editor.rs](src/editor.rs) | Existing editor launcher, retained outside the adapter reorganization. |
 
 Rules:
 
 - Put new behavior in `usecase.rs`. Keep `main.rs` limited to argument parsing, wiring, and reporting.
-- When a use case needs a new external capability, add a method to the trait in `port.rs` and implement it in the concrete module. Do not call `std::fs` or `Command` directly from use-case logic.
+- When a use case needs a new external capability, add a method to the appropriate trait in `ports/` and implement it in `adapters/`. Do not call `std::fs` or `Command` directly from use-case logic.
 - Errors are returned as `Result<_, String>` with user-readable messages (current convention; follow it unless asked to change it).
 
 ## Commands

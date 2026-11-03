@@ -1,4 +1,4 @@
-use crate::port::GlobExpander;
+use crate::ports::GlobExpander;
 use glob::{MatchOptions, glob_with};
 use std::path::{Path, PathBuf};
 
