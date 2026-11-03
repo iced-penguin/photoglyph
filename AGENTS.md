@@ -40,7 +40,6 @@ cargo test
 - Every behavior change or bug fix needs a test. Add tests in a `#[cfg(test)] mod tests` at the bottom of the relevant file.
 - Test use cases with fake `SidecarStore` / `FileSystem` implementations (see `usecase.rs` tests). Tests must not require ExifTool to be installed and must not call it.
 - Use temporary directories for filesystem tests; never write to or modify files in `sample/`.
-- Validate the Copilot commit guard with `python3 .github/hooks/test_check_commit.py` when changing its configuration or script.
 
 ## Boundaries
 
@@ -58,13 +57,13 @@ cargo test
 - Keep pull requests small and focused on one purpose, and describe what changed and how it was verified.
 - Use `.github/PULL_REQUEST_TEMPLATE.md` for every pull request. Preserve its headings, comments, checklist items, and ordering.
 - Stage only files related to the assigned task; inspect the staged diff before committing.
-- Never commit directly to `main`. GitHub branch protection and required CI checks are the authoritative controls for changes merged to `main`; Copilot hooks provide an additional guard, not a replacement.
+- Never commit directly to `main`. GitHub branch protection and required CI checks are the authoritative controls for changes merged to `main`; the `.githooks/pre-commit` hook is an additional guard, not a replacement. It rejects commits on `main` and runs `cargo format-check` and `cargo lint` when Rust files change; do not bypass it with `--no-verify`.
 
 ## Copilot agent workflow
 
 - Read this file before starting work. It is the source of truth for repository-wide coding, testing, and Git rules.
 - For issue-assigned work, implement the requested scope and complete the expected branch, commit, and pull request workflow without waiting for interactive approval that is unavailable in the cloud agent.
 - Follow `.github/skills/commit/SKILL.md` for commit-specific rules and `.github/skills/pr/SKILL.md` for pull-request-specific rules. These skills are available to repository Copilot agents as well as local chat.
-- The Copilot hook in `.github/hooks/photoglyph-guardrails.json` checks commits made through the cloud agent's Bash tool. It is loaded only after the hook file reaches the default branch; it is an additional guard, not a substitute for GitHub branch protection or CI.
+- Create commits with `git commit`, not by writing files through the GitHub API, so that `.githooks/pre-commit` runs. The cloud environment enables it via `.github/workflows/copilot-setup-steps.yml`.
 - Do not create commits or pull requests for requests that only ask for advice, a plan, or a review. Never merge a pull request unless explicitly asked.
 - Run the repository's documented checks before handing off work. CI remains responsible for the complete test suite and required merge checks.
