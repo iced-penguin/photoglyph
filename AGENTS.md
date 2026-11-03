@@ -10,18 +10,11 @@ Guidance for AI coding agents working in this repository. For human-oriented set
 
 Dependencies point inward: `main` -> `usecase` -> `ports` <- `adapters`.
 
-| File | Role |
-| --- | --- |
-| [src/ports/sidecar_store.rs](src/ports/sidecar_store.rs) | `SidecarStore` and its `Selection` type. |
-| [src/ports/filesystem.rs](src/ports/filesystem.rs) | `FileSystem` trait. |
-| [src/ports/glob_expander.rs](src/ports/glob_expander.rs) | `GlobExpander` trait. |
-| [src/ports/mod.rs](src/ports/mod.rs) | Re-exports port traits and defines the existing `Editor` port. |
-| [src/adapters/exiftool.rs](src/adapters/exiftool.rs) | `SidecarStore` implementation that shells out to ExifTool. |
-| [src/adapters/filesystem.rs](src/adapters/filesystem.rs) | `FileSystem` implementation backed by `std::fs`. |
-| [src/adapters/glob.rs](src/adapters/glob.rs) | `GlobExpander` implementation and glob expansion of CLI path arguments. |
-| [src/main.rs](src/main.rs) | clap CLI definition, wiring of implementations into use cases, output and exit codes. |
-| [src/usecase.rs](src/usecase.rs) | Business logic (`export`, `show`, `set`, `clear`, `edit`). Depends only on port traits, never on concrete implementations. |
-| [src/editor.rs](src/editor.rs) | Existing editor launcher, retained outside the adapter reorganization. |
+- [`src/main.rs`](src/main.rs) defines the clap CLI, wires implementations into use cases, and handles output and exit codes.
+- [`src/usecase.rs`](src/usecase.rs) contains business logic (`export`, `show`, `set`, `clear`, `edit`) and depends only on port traits.
+- [`src/ports/`](src/ports/) defines the interfaces use cases need: `SidecarStore` (and its `Selection` type), `FileSystem`, `GlobExpander`, and `Editor`.
+- [`src/adapters/`](src/adapters/) implements the external capabilities: ExifTool-backed sidecar storage, `std::fs`-backed filesystem operations, and CLI glob expansion.
+- [`src/editor.rs`](src/editor.rs) provides the editor launcher used by the `Editor` port.
 
 Rules:
 
