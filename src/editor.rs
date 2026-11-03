@@ -119,6 +119,16 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test]
+    fn editor_env_restores_previous_values_on_drop() {
+        let _lock = EDITOR_ENV_LOCK.lock().unwrap();
+        let _outer = EditorEnv::set(Some("visual-editor"), Some("plain-editor"));
+        drop(EditorEnv::set(None, None));
+        assert_eq!(std::env::var_os("VISUAL"), Some("visual-editor".into()));
+        assert_eq!(std::env::var_os("EDITOR"), Some("plain-editor".into()));
+    }
+
+    #[cfg(unix)]
     static EDITOR_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[cfg(unix)]
