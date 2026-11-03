@@ -1,5 +1,15 @@
+use crate::port::GlobExpander;
 use glob::{MatchOptions, glob_with};
 use std::path::{Path, PathBuf};
+
+#[derive(Default)]
+pub struct ShellGlob;
+
+impl GlobExpander for ShellGlob {
+    fn expand(&self, pattern: &str) -> Vec<PathBuf> {
+        expand(pattern)
+    }
+}
 
 /// Expands a shell-style pattern; a pattern without metacharacters is returned as is.
 pub fn expand(pattern: &str) -> Vec<PathBuf> {
