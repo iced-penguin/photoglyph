@@ -14,6 +14,7 @@ COMMAND_SEPARATORS = {";", "&&", "||", "|", "&", "(", ")"}
 COMMAND_PREFIXES = {"then", "do", "else", "elif"}
 GIT_OPTIONS_WITH_VALUES = {
     "-C",
+    "-c",
     "--git-dir",
     "--work-tree",
     "--namespace",
