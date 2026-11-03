@@ -13,8 +13,7 @@ Dependencies point inward: `main` -> `usecase` -> `ports` <- `adapters`.
 - [`src/main.rs`](src/main.rs) defines the clap CLI, wires implementations into use cases, and handles output and exit codes.
 - [`src/usecase.rs`](src/usecase.rs) contains business logic (`export`, `show`, `set`, `clear`, `edit`) and depends only on port traits.
 - [`src/ports/`](src/ports/) defines the interfaces use cases need: `SidecarStore` (and its `Selection` type), `FileSystem`, `GlobExpander`, and `Editor`.
-- [`src/adapters/`](src/adapters/) implements the external capabilities: ExifTool-backed sidecar storage, `std::fs`-backed filesystem operations, and CLI glob expansion.
-- [`src/editor.rs`](src/editor.rs) provides the editor launcher used by the `Editor` port.
+- [`src/adapters/`](src/adapters/) implements the external capabilities: ExifTool-backed sidecar storage, `std::fs`-backed filesystem operations, CLI glob expansion, and the `$VISUAL`/`$EDITOR`-backed implementation of `Editor`.
 
 Rules:
 

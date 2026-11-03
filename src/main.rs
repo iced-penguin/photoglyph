@@ -1,9 +1,8 @@
 mod adapters;
-mod editor;
 mod ports;
 mod usecase;
 
-use adapters::{exiftool, filesystem, glob};
+use adapters::{editor, exiftool, filesystem, glob};
 use clap::{Args, Parser, Subcommand};
 use ports::{GlobExpander, SidecarStore};
 use std::path::PathBuf;
