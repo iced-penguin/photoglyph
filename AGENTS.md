@@ -53,5 +53,17 @@ cargo test
 ## Git and pull requests
 
 - Work on a feature branch (e.g. `feature/<topic>`), not directly on `main`.
-- Commit messages use a Conventional Commits style prefix: `feat:`, `fix:`, `refactor:`, `doc:`, `test:`, `chore:`.
+- Commit messages use a Conventional Commits style prefix: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`.
 - Keep pull requests small and focused on one purpose, and describe what changed and how it was verified.
+- Use `.github/PULL_REQUEST_TEMPLATE.md` for every pull request. Preserve its headings, comments, checklist items, and ordering.
+- Stage only files related to the assigned task; inspect the staged diff before committing.
+- Never commit directly to `main`. GitHub branch protection and required CI checks are the authoritative controls for changes merged to `main`; the `.githooks/pre-commit` hook is an additional guard, not a replacement. It rejects commits on `main` and runs `cargo format-check` and `cargo lint` when Rust files change; do not bypass it with `--no-verify`.
+
+## Copilot agent workflow
+
+- Read this file before starting work. It is the source of truth for repository-wide coding, testing, and Git rules.
+- For issue-assigned work, implement the requested scope and complete the expected branch, commit, and pull request workflow without waiting for interactive approval that is unavailable in the cloud agent.
+- Follow `.github/skills/commit/SKILL.md` for commit-specific rules and `.github/skills/pr/SKILL.md` for pull-request-specific rules. These skills are available to repository Copilot agents as well as local chat.
+- Create commits with `git commit`, not by writing files through the GitHub API, so that `.githooks/pre-commit` runs. The cloud environment enables it via `.github/workflows/copilot-setup-steps.yml`.
+- Do not create commits or pull requests for requests that only ask for advice, a plan, or a review. Never merge a pull request unless explicitly asked.
+- Run the repository's documented checks before handing off work. CI remains responsible for the complete test suite and required merge checks.
