@@ -5,7 +5,7 @@ Photoglyph is for photographers who want to describe and organize their photos w
 ## Requirements
 
 - [ExifTool](https://exiftool.org/)
-- Rust >= 1.99.1
+- Rust 1.99.1 or later is required to install photoglyph with Cargo.
 
 ## Features
 
