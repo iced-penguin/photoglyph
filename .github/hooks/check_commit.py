@@ -98,7 +98,7 @@ def message_from_args(args: list[str], repository: Path, runner: Runner) -> str 
     index = 0
     while index < len(args):
         argument = args[index]
-        if argument in {"-m", "--message"} and index + 1 < len(args):
+        if argument in {"-m", "--message", "-am"} and index + 1 < len(args):
             messages.append(args[index + 1])
             index += 2
         elif argument.startswith("--message="):
