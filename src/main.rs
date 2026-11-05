@@ -231,16 +231,18 @@ fn format_show_result(
     labeled: bool,
     printed: &mut bool,
 ) -> Option<String> {
-    if text.is_empty() {
+    if text.is_empty() && !labeled {
         return None;
     }
 
     let separator = if labeled && *printed { "\n" } else { "" };
     *printed = true;
-    Some(format!(
-        "{separator}{}\n",
-        format_show_output(target, text, labeled)
-    ))
+    let output = format_show_output(target, text, labeled);
+    if labeled && text.is_empty() {
+        Some(format!("{separator}{output}"))
+    } else {
+        Some(format!("{separator}{output}\n"))
+    }
 }
 
 #[cfg(test)]
@@ -281,12 +283,13 @@ mod tests {
     }
 
     #[test]
-    fn formats_multiple_show_results_ignoring_empty_results() {
+    fn formats_multiple_show_results_including_empty_results() {
         let results = [
             (Path::new("empty-before.xmp"), ""),
             (Path::new("a.xmp"), "XMP-dc:Description: A"),
             (Path::new("empty-between.xmp"), ""),
             (Path::new("b.xmp"), "XMP-dc:Description: B"),
+            (Path::new("empty-after.xmp"), ""),
         ];
         let mut printed = false;
         let mut output = String::new();
@@ -299,7 +302,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "== a.xmp ==\nXMP-dc:Description: A\n\n== b.xmp ==\nXMP-dc:Description: B\n"
+            "== empty-before.xmp ==\n\n== a.xmp ==\nXMP-dc:Description: A\n\n== empty-between.xmp ==\n\n== b.xmp ==\nXMP-dc:Description: B\n\n== empty-after.xmp ==\n"
         );
     }
 

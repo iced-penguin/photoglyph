@@ -22,7 +22,7 @@ pg set photo "A quiet morning by the lake"
 ## Features
 
 - `export`: Exports image metadata to a companion `.xmp` sidecar. Existing sidecars are not overwritten unless forced.
-- `show`: Displays the default comment, common properties, all XMP properties, or a selected property. When more than one target is shown, each non-empty result is preceded by a `== <path> ==` header. Missing properties are omitted; empty properties are shown without a value. `--verbose` uses a more detailed output format.
+- `show`: Displays the default comment, common properties, all XMP properties, or a selected property. When more than one target is shown, each result—including an empty result—is preceded by a `== <path> ==` header. Missing properties are omitted; empty properties are shown without a value. `--verbose` uses a more detailed output format.
 - `set`: Sets a property value.
 - `clear`: Sets a property to an empty value while keeping it present.
 - `edit`: Opens the sidecar in the editor configured by `$VISUAL` or `$EDITOR`.
