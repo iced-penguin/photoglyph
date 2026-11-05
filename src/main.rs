@@ -138,13 +138,12 @@ fn main() -> ExitCode {
                     &filesystem,
                 );
                 match result {
-                    Ok(text) if text.is_empty() => {}
                     Ok(text) => {
-                        if labeled && printed {
-                            println!();
+                        if let Some(output) =
+                            format_show_result(&target, &text, labeled, &mut printed)
+                        {
+                            print!("{output}");
                         }
-                        println!("{}", format_show_output(&target, &text, labeled));
-                        printed = true;
                     }
                     Err(error) => {
                         eprintln!("{}: error: {error}", target.display());
@@ -226,9 +225,27 @@ fn format_show_output(target: &Path, text: &str, labeled: bool) -> String {
     }
 }
 
+fn format_show_result(
+    target: &Path,
+    text: &str,
+    labeled: bool,
+    printed: &mut bool,
+) -> Option<String> {
+    if text.is_empty() {
+        return None;
+    }
+
+    let separator = if labeled && *printed { "\n" } else { "" };
+    *printed = true;
+    Some(format!(
+        "{separator}{}\n",
+        format_show_output(target, text, labeled)
+    ))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Command, expand_all, format_show_output};
+    use super::{Cli, Command, expand_all, format_show_output, format_show_result};
     use crate::ports::GlobExpander;
     use clap::{Parser, error::ErrorKind};
     use rstest::rstest;
@@ -261,6 +278,29 @@ mod tests {
         #[case] expected: &str,
     ) {
         assert_eq!(format_show_output(Path::new(path), text, labeled), expected);
+    }
+
+    #[test]
+    fn formats_multiple_show_results_ignoring_empty_results() {
+        let results = [
+            (Path::new("empty-before.xmp"), ""),
+            (Path::new("a.xmp"), "XMP-dc:Description: A"),
+            (Path::new("empty-between.xmp"), ""),
+            (Path::new("b.xmp"), "XMP-dc:Description: B"),
+        ];
+        let mut printed = false;
+        let mut output = String::new();
+
+        for (target, text) in results {
+            if let Some(result) = format_show_result(target, text, true, &mut printed) {
+                output.push_str(&result);
+            }
+        }
+
+        assert_eq!(
+            output,
+            "== a.xmp ==\nXMP-dc:Description: A\n\n== b.xmp ==\nXMP-dc:Description: B\n"
+        );
     }
 
     #[test]
