@@ -124,7 +124,10 @@ fn main() -> ExitCode {
             targets,
         } => {
             let key = display.key.as_deref();
-            for target in expand_all(&targets, &globber) {
+            let expanded = expand_all(&targets, &globber);
+            let labeled = expanded.len() > 1;
+            let mut printed = false;
+            for target in expanded {
                 let result = usecase::show(
                     &target,
                     display.all,
@@ -135,8 +138,18 @@ fn main() -> ExitCode {
                     &filesystem,
                 );
                 match result {
-                    Ok(text) if text.is_empty() => {}
-                    Ok(text) => println!("{text}"),
+                    Ok(text) => {
+                        if printed {
+                            println!();
+                        }
+                        if labeled {
+                            println!("== {} ==", target.display());
+                        }
+                        if !text.is_empty() {
+                            println!("{text}");
+                        }
+                        printed = true;
+                    }
                     Err(error) => {
                         eprintln!("{}: error: {error}", target.display());
                         failed = true;
