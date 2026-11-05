@@ -5,7 +5,7 @@ mod usecase;
 use adapters::{editor, exiftool, filesystem, glob};
 use clap::{Args, Parser, Subcommand};
 use ports::{GlobExpander, SidecarStore};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 /// Export and edit XMP sidecars without writing metadata into image files.
@@ -139,11 +139,16 @@ fn main() -> ExitCode {
                 );
                 match result {
                     Ok(text) => {
-                        if let Some(output) =
-                            format_show_result(&target, &text, labeled, &mut printed)
-                        {
-                            print!("{output}");
+                        if printed {
+                            println!();
                         }
+                        if labeled {
+                            println!("== {} ==", target.display());
+                        }
+                        if !text.is_empty() {
+                            println!("{text}");
+                        }
+                        printed = true;
                     }
                     Err(error) => {
                         eprintln!("{}: error: {error}", target.display());
@@ -217,39 +222,13 @@ fn report_silently<T>(
     }
 }
 
-fn format_show_output(target: &Path, text: &str, labeled: bool) -> String {
-    if labeled {
-        format!("== {} ==\n{text}", target.display())
-    } else {
-        text.to_string()
-    }
-}
-
-fn format_show_result(
-    target: &Path,
-    text: &str,
-    labeled: bool,
-    printed: &mut bool,
-) -> Option<String> {
-    if text.is_empty() {
-        return None;
-    }
-
-    let separator = if labeled && *printed { "\n" } else { "" };
-    *printed = true;
-    Some(format!(
-        "{separator}{}\n",
-        format_show_output(target, text, labeled)
-    ))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Command, expand_all, format_show_output, format_show_result};
+    use super::{Cli, Command, expand_all};
     use crate::ports::GlobExpander;
     use clap::{Parser, error::ErrorKind};
     use rstest::rstest;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     struct FakeGlob;
 
@@ -261,46 +240,6 @@ mod tests {
                 other => vec![PathBuf::from(other)],
             }
         }
-    }
-
-    #[rstest]
-    #[case::multiple(
-        "a/x.xmp",
-        "XMP-dc:Description: A",
-        true,
-        "== a/x.xmp ==\nXMP-dc:Description: A"
-    )]
-    #[case::single("a/x.xmp", "XMP-dc:Description: A", false, "XMP-dc:Description: A")]
-    fn formats_show_output(
-        #[case] path: &str,
-        #[case] text: &str,
-        #[case] labeled: bool,
-        #[case] expected: &str,
-    ) {
-        assert_eq!(format_show_output(Path::new(path), text, labeled), expected);
-    }
-
-    #[test]
-    fn formats_multiple_show_results_ignoring_empty_results() {
-        let results = [
-            (Path::new("empty-before.xmp"), ""),
-            (Path::new("a.xmp"), "XMP-dc:Description: A"),
-            (Path::new("empty-between.xmp"), ""),
-            (Path::new("b.xmp"), "XMP-dc:Description: B"),
-        ];
-        let mut printed = false;
-        let mut output = String::new();
-
-        for (target, text) in results {
-            if let Some(result) = format_show_result(target, text, true, &mut printed) {
-                output.push_str(&result);
-            }
-        }
-
-        assert_eq!(
-            output,
-            "== a.xmp ==\nXMP-dc:Description: A\n\n== b.xmp ==\nXMP-dc:Description: B\n"
-        );
     }
 
     #[test]
