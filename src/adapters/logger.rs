@@ -45,6 +45,11 @@ mod tests {
     }
 
     #[test]
+    fn failing_writer_flush_succeeds() {
+        assert!(FailingWriter.flush().is_ok());
+    }
+
+    #[test]
     #[should_panic(expected = "failed printing to stderr")]
     fn panics_on_write_failure() {
         CliLogger::new(FailingWriter).warn("message");
