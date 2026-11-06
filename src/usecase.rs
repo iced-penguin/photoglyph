@@ -15,7 +15,7 @@ const BASIC_KEYS: &[&str] = &[
 ];
 #[derive(Debug, PartialEq, Eq)]
 pub struct ExportReport {
-    pub message: String,
+    pub result: Result<String, String>,
     pub warnings: Vec<String>,
 }
 
@@ -24,52 +24,52 @@ pub fn export(
     force: bool,
     tool: &impl SidecarStore,
     filesystem: &impl FileSystem,
-) -> Result<ExportReport, String> {
+) -> ExportReport {
     let mut warnings = Vec::new();
-    if !is_image(image) {
-        return Err("export requires a supported image path".into());
-    }
-    let image = canonical(image, filesystem)?;
-    if let Some(collision) = find_stem_collision(&image, filesystem)? {
-        if force {
-            warnings.push(format!(
-                "warning: sidecar basename is ambiguous with {}; proceeding because --force was specified",
-                collision.display()
-            ));
-        } else {
-            return Err(stem_collision_error(&collision));
+    let result = (|| {
+        if !is_image(image) {
+            return Err("export requires a supported image path".into());
         }
-    }
-    let sidecar = companion(&image);
-    if filesystem.exists(&sidecar) && !force {
-        return Err(format!(
-            "sidecar already exists: {}; use --force to replace it",
-            sidecar.display()
-        ));
-    }
-    let temporary = temporary_sidecar(&sidecar, filesystem);
-    if let Err(error) = tool.export_to(&image, &temporary) {
-        let _ = filesystem.remove_file(&temporary);
-        return Err(error);
-    }
-    if !filesystem.is_file(&temporary) {
-        return Err("exiftool reported success but did not create an XMP sidecar".into());
-    }
-    if let Err(error) = filesystem.install_sidecar(&temporary, &sidecar, force) {
-        let _ = filesystem.remove_file(&temporary);
-        return Err(if filesystem.exists(&sidecar) && !force {
-            format!(
+        let image = canonical(image, filesystem)?;
+        if let Some(collision) = find_stem_collision(&image, filesystem)? {
+            if force {
+                warnings.push(format!(
+                    "warning: sidecar basename is ambiguous with {}; proceeding because --force was specified",
+                    collision.display()
+                ));
+            } else {
+                return Err(stem_collision_error(&collision));
+            }
+        }
+        let sidecar = companion(&image);
+        if filesystem.exists(&sidecar) && !force {
+            return Err(format!(
                 "sidecar already exists: {}; use --force to replace it",
                 sidecar.display()
-            )
-        } else {
-            format!("cannot install sidecar {}: {error}", sidecar.display())
-        });
-    }
-    Ok(ExportReport {
-        message: format!("exported to {}", sidecar.display()),
-        warnings,
-    })
+            ));
+        }
+        let temporary = temporary_sidecar(&sidecar, filesystem);
+        if let Err(error) = tool.export_to(&image, &temporary) {
+            let _ = filesystem.remove_file(&temporary);
+            return Err(error);
+        }
+        if !filesystem.is_file(&temporary) {
+            return Err("exiftool reported success but did not create an XMP sidecar".into());
+        }
+        if let Err(error) = filesystem.install_sidecar(&temporary, &sidecar, force) {
+            let _ = filesystem.remove_file(&temporary);
+            return Err(if filesystem.exists(&sidecar) && !force {
+                format!(
+                    "sidecar already exists: {}; use --force to replace it",
+                    sidecar.display()
+                )
+            } else {
+                format!("cannot install sidecar {}: {error}", sidecar.display())
+            });
+        }
+        Ok(format!("exported to {}", sidecar.display()))
+    })();
+    ExportReport { result, warnings }
 }
 
 pub fn show(
@@ -377,7 +377,9 @@ mod tests {
         let filesystem = TestFileSystem::default();
         let store = TestSidecarStore::default();
         assert_eq!(
-            export(Path::new("/photos/photo.txt"), false, &store, &filesystem).unwrap_err(),
+            export(Path::new("/photos/photo.txt"), false, &store, &filesystem)
+                .result
+                .unwrap_err(),
             "export requires a supported image path"
         );
         assert!(store.calls.borrow().is_empty());
@@ -389,6 +391,7 @@ mod tests {
         let store = TestSidecarStore::default();
         assert!(
             export(Path::new("/photos/missing.jpg"), false, &store, &filesystem)
+                .result
                 .unwrap_err()
                 .contains("file not found")
         );
@@ -403,6 +406,7 @@ mod tests {
         filesystem.0.borrow_mut().canonicalize_error = Some(ErrorKind::PermissionDenied);
         assert!(
             export(Path::new("/photos/photo.jpg"), false, &store, &filesystem)
+                .result
                 .unwrap_err()
                 .contains("denied")
         );
@@ -418,6 +422,7 @@ mod tests {
         let store = TestSidecarStore::default();
         assert!(
             export(image, false, &store, &filesystem)
+                .result
                 .unwrap_err()
                 .contains("denied")
         );
@@ -435,6 +440,7 @@ mod tests {
         };
         assert!(
             export(image, false, &store, &filesystem)
+                .result
                 .unwrap_err()
                 .contains("did not create an XMP sidecar")
         );
@@ -451,6 +457,7 @@ mod tests {
 
         assert!(
             export(image, false, &store, &filesystem)
+                .result
                 .unwrap_err()
                 .contains("basename is ambiguous")
         );
@@ -469,7 +476,7 @@ mod tests {
             export_creates_file: true,
             ..Default::default()
         };
-        assert!(export(image, true, &store, &filesystem).is_ok());
+        assert!(export(image, true, &store, &filesystem).result.is_ok());
         assert!(filesystem.is_file(sidecar));
         assert_eq!(filesystem.file_count(), 2);
     }
@@ -491,6 +498,7 @@ mod tests {
         };
         assert!(
             export(image, false, &store, &filesystem)
+                .result
                 .unwrap_err()
                 .contains("use --force to replace it")
         );
@@ -513,7 +521,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(export(image, false, &store, &filesystem).is_ok());
+        assert!(export(image, false, &store, &filesystem).result.is_ok());
         assert!(filesystem.is_file(&existing_temporary));
         assert!(matches!(
             store.calls.borrow().as_slice(),
@@ -534,9 +542,9 @@ mod tests {
         };
 
         assert_eq!(
-            export(image, false, &store, &filesystem).unwrap(),
+            export(image, false, &store, &filesystem),
             ExportReport {
-                message: "exported to /photos/photo.xmp".into(),
+                result: Ok("exported to /photos/photo.xmp".into()),
                 warnings: Vec::new(),
             }
         );
@@ -563,6 +571,7 @@ mod tests {
 
         assert!(
             export(image, false, &store, &filesystem)
+                .result
                 .unwrap_err()
                 .contains("use --force to replace it")
         );
@@ -582,7 +591,9 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            export(image, false, &tool_error, &filesystem).unwrap_err(),
+            export(image, false, &tool_error, &filesystem)
+                .result
+                .unwrap_err(),
             "export failed"
         );
         assert_eq!(filesystem.file_count(), 1);
@@ -601,6 +612,7 @@ mod tests {
         };
         assert!(
             export(image, false, &store, &install_filesystem)
+                .result
                 .unwrap_err()
                 .contains("cannot install sidecar")
         );
@@ -617,7 +629,9 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            export(image, false, &store, &missing_temporary_fs).unwrap_err(),
+            export(image, false, &store, &missing_temporary_fs)
+                .result
+                .unwrap_err(),
             "export failed before creating output"
         );
         assert_eq!(missing_temporary_fs.file_count(), 1);
@@ -634,7 +648,29 @@ mod tests {
             export_creates_file: true,
             ..Default::default()
         };
-        let report = export(image, true, &store, &filesystem).unwrap();
+        let report = export(image, true, &store, &filesystem);
+        assert_eq!(
+            report.warnings,
+            [
+                "warning: sidecar basename is ambiguous with /photos/photo.NEF; proceeding because --force was specified"
+            ]
+        );
+    }
+
+    #[test]
+    fn forced_export_preserves_collision_warning_when_export_fails() {
+        let filesystem = TestFileSystem::default();
+        let image = Path::new("/photos/photo.jpg");
+        filesystem.add_file(image);
+        filesystem.add_file(Path::new("/photos/photo.NEF"));
+        let store = TestSidecarStore {
+            export_error: Some("export failed".into()),
+            ..Default::default()
+        };
+
+        let report = export(image, true, &store, &filesystem);
+
+        assert_eq!(report.result, Err("export failed".into()));
         assert_eq!(
             report.warnings,
             [
@@ -653,12 +689,7 @@ mod tests {
             export_creates_file: true,
             ..Default::default()
         };
-        assert!(
-            export(image, true, &store, &filesystem)
-                .unwrap()
-                .warnings
-                .is_empty()
-        );
+        assert!(export(image, true, &store, &filesystem).warnings.is_empty());
     }
 
     #[test]

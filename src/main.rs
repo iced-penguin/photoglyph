@@ -210,17 +210,14 @@ fn report<T: std::fmt::Display>(
 
 fn report_export(
     target: impl std::fmt::Display,
-    result: Result<usecase::ExportReport, String>,
+    export_report: usecase::ExportReport,
     failed: &mut bool,
     stderr: &mut impl std::io::Write,
 ) {
-    let result = result.map(|report| {
-        for warning in &report.warnings {
-            let _ = writeln!(stderr, "{warning}");
-        }
-        report.message
-    });
-    report(target, result, failed);
+    for warning in &export_report.warnings {
+        let _ = writeln!(stderr, "{warning}");
+    }
+    report(target, export_report.result, failed);
 }
 
 fn report_silently<T>(
@@ -405,20 +402,28 @@ mod tests {
         let mut failed = false;
         let mut stderr = Vec::new();
         let report = ExportReport {
-            message: "exported to a.xmp".into(),
+            result: Ok("exported to a.xmp".into()),
             warnings: vec!["warning: x".into()],
         };
-        report_export("a.jpg", Ok(report), &mut failed, &mut stderr);
+        report_export("a.jpg", report, &mut failed, &mut stderr);
         assert_eq!(String::from_utf8(stderr).unwrap(), "warning: x\n");
         assert!(!failed);
     }
 
     #[test]
-    fn report_export_writes_no_warnings_on_error() {
+    fn report_export_writes_warnings_before_reporting_error() {
         let mut failed = false;
         let mut stderr = Vec::new();
-        report_export("a.jpg", Err("bad".into()), &mut failed, &mut stderr);
-        assert!(stderr.is_empty());
+        report_export(
+            "a.jpg",
+            ExportReport {
+                result: Err("bad".into()),
+                warnings: vec!["warning: x".into()],
+            },
+            &mut failed,
+            &mut stderr,
+        );
+        assert_eq!(String::from_utf8(stderr).unwrap(), "warning: x\n");
         assert!(failed);
     }
 
