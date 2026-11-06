@@ -117,6 +117,7 @@ pub(super) struct TestSidecarStore {
     pub(super) write_result: Option<Result<bool, String>>,
     pub(super) clear_result: Option<Result<bool, String>>,
     pub(super) calls: RefCell<Vec<StoreCall>>,
+    pub(super) events: Option<Rc<RefCell<Vec<String>>>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -133,6 +134,9 @@ impl SidecarStore for TestSidecarStore {
     }
 
     fn export_to(&self, image: &Path, sidecar: &Path) -> Result<(), String> {
+        if let Some(events) = &self.events {
+            events.borrow_mut().push("export".into());
+        }
         self.calls.borrow_mut().push(StoreCall::Export(
             image.to_path_buf(),
             sidecar.to_path_buf(),

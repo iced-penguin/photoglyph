@@ -1,4 +1,4 @@
-use crate::ports::{Editor, FileSystem, Selection, SidecarStore};
+use crate::ports::{Editor, FileSystem, Logger, Selection, SidecarStore};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
@@ -18,6 +18,7 @@ pub fn export(
     force: bool,
     tool: &impl SidecarStore,
     filesystem: &impl FileSystem,
+    logger: &mut impl Logger,
 ) -> Result<String, String> {
     if !is_image(image) {
         return Err("export requires a supported image path".into());
@@ -25,10 +26,10 @@ pub fn export(
     let image = canonical(image, filesystem)?;
     if let Some(collision) = find_stem_collision(&image, filesystem)? {
         if force {
-            eprintln!(
-                "warning: sidecar basename is ambiguous with {}; proceeding because --force was specified",
+            logger.warn(&format!(
+                "sidecar basename is ambiguous with {}; proceeding because --force was specified",
                 collision.display()
-            );
+            ));
         } else {
             return Err(stem_collision_error(&collision));
         }
@@ -248,15 +249,41 @@ mod test_helpers;
 mod tests {
     use super::test_helpers::{StoreCall, TestEditor, TestFileSystem, TestSidecarStore};
     use super::{
-        BASIC_KEYS, clear, export, find_stem_collision, is_image, is_xmp, parent_or_current_dir,
+        BASIC_KEYS, clear, find_stem_collision, is_image, is_xmp, parent_or_current_dir,
         resolve_xmp_target, set, show, validate_key,
     };
-    use crate::ports::FileSystem;
+    use crate::ports::{FileSystem, Logger};
+    use std::cell::RefCell;
     use std::io::ErrorKind;
     use std::path::Path;
     use std::path::PathBuf;
+    use std::rc::Rc;
 
     use rstest::rstest;
+
+    #[derive(Default)]
+    struct TestLogger {
+        warnings: Vec<String>,
+        events: Option<Rc<RefCell<Vec<String>>>>,
+    }
+
+    impl Logger for TestLogger {
+        fn warn(&mut self, message: &str) {
+            self.warnings.push(message.into());
+            if let Some(events) = &self.events {
+                events.borrow_mut().push("warning".into());
+            }
+        }
+    }
+
+    fn export(
+        image: &Path,
+        force: bool,
+        store: &TestSidecarStore,
+        filesystem: &TestFileSystem,
+    ) -> Result<String, String> {
+        super::export(image, force, store, filesystem, &mut TestLogger::default())
+    }
 
     #[rstest]
     #[case("photo.jpg", true)]
@@ -439,11 +466,12 @@ mod tests {
         filesystem.add_file(Path::new("/photos/photo.NEF"));
         let store = TestSidecarStore::default();
 
-        assert!(
-            export(image, false, &store, &filesystem)
-                .unwrap_err()
-                .contains("basename is ambiguous")
+        let mut logger = TestLogger::default();
+        assert_eq!(
+            super::export(image, false, &store, &filesystem, &mut logger).unwrap_err(),
+            "sidecar basename is ambiguous with /photos/photo.NEF; refusing unsafe operation"
         );
+        assert!(logger.warnings.is_empty());
         assert!(store.calls.borrow().is_empty());
     }
 
@@ -459,7 +487,9 @@ mod tests {
             export_creates_file: true,
             ..Default::default()
         };
-        assert!(export(image, true, &store, &filesystem).is_ok());
+        let mut logger = TestLogger::default();
+        assert!(super::export(image, true, &store, &filesystem, &mut logger).is_ok());
+        assert!(logger.warnings.is_empty());
         assert!(filesystem.is_file(sidecar));
         assert_eq!(filesystem.file_count(), 2);
     }
@@ -616,12 +646,61 @@ mod tests {
         let image = Path::new("/photos/photo.jpg");
         filesystem.add_file(image);
         filesystem.add_file(Path::new("/photos/photo.NEF"));
+        let events = Rc::new(RefCell::new(Vec::new()));
         let store = TestSidecarStore {
             filesystem: filesystem.clone(),
             export_creates_file: true,
+            events: Some(events.clone()),
             ..Default::default()
         };
-        assert!(export(image, true, &store, &filesystem).is_ok());
+        let mut logger = TestLogger {
+            events: Some(events.clone()),
+            ..Default::default()
+        };
+        assert_eq!(
+            super::export(image, true, &store, &filesystem, &mut logger).unwrap(),
+            "exported to /photos/photo.xmp"
+        );
+        assert_eq!(
+            logger.warnings,
+            [
+                "sidecar basename is ambiguous with /photos/photo.NEF; proceeding because --force was specified"
+            ]
+        );
+        assert_eq!(*events.borrow(), ["warning", "export"]);
+    }
+
+    #[rstest]
+    #[case::export_failure(true)]
+    #[case::install_failure(false)]
+    fn forced_export_preserves_warning_on_failure(#[case] export_failure: bool) {
+        let filesystem = TestFileSystem::default();
+        let image = Path::new("/photos/photo.jpg");
+        filesystem.add_file(image);
+        filesystem.add_file(Path::new("/photos/photo.NEF"));
+        if !export_failure {
+            filesystem.0.borrow_mut().install_error = Some(ErrorKind::PermissionDenied);
+        }
+        let store = TestSidecarStore {
+            filesystem: filesystem.clone(),
+            export_creates_file: true,
+            export_error: export_failure.then(|| "export failed".into()),
+            ..Default::default()
+        };
+        let mut logger = TestLogger::default();
+        let error = super::export(image, true, &store, &filesystem, &mut logger).unwrap_err();
+        if export_failure {
+            assert_eq!(error, "export failed");
+        } else {
+            assert!(error.contains("cannot install sidecar /photos/photo.xmp:"));
+        }
+        assert_eq!(
+            logger.warnings,
+            [
+                "sidecar basename is ambiguous with /photos/photo.NEF; proceeding because --force was specified"
+            ]
+        );
+        assert_eq!(filesystem.file_count(), 2);
     }
 
     #[test]
