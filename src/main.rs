@@ -2,7 +2,7 @@ mod adapters;
 mod ports;
 mod usecase;
 
-use adapters::{editor, exiftool, filesystem, glob};
+use adapters::{editor, exiftool, filesystem, glob, logger};
 use clap::{Args, Parser, Subcommand};
 use ports::{GlobExpander, SidecarStore};
 use std::path::PathBuf;
@@ -110,10 +110,11 @@ fn main() -> ExitCode {
     let mut failed = false;
     match cli.command {
         Command::Export { force, targets } => {
+            let mut logger = logger::CliLogger::new(std::io::stderr());
             for image in expand_all(&targets, &globber) {
                 report(
                     image.display(),
-                    usecase::export(&image, force, &exiftool, &filesystem),
+                    usecase::export(&image, force, &exiftool, &filesystem, &mut logger),
                     &mut failed,
                 );
             }
