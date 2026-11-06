@@ -12,5 +12,5 @@ pub use set::set;
 pub use show::{DEFAULT_COMMENT, show};
 
 #[cfg(test)]
-#[path = "usecase/tests.rs"]
-mod tests;
+#[path = "usecase/test_helpers.rs"]
+mod test_helpers;
