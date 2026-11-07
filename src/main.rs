@@ -2,10 +2,8 @@ mod adapters;
 mod ports;
 mod usecase;
 
-use adapters::{editor, exiftool, filesystem, glob, logger};
+use adapters::{editor, exiftool, filesystem, glob, output};
 use clap::{Args, Parser, Subcommand};
-use ports::{GlobExpander, SidecarStore};
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 /// Export and edit XMP sidecars without writing metadata into image files.
@@ -90,8 +88,9 @@ fn main() -> ExitCode {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(error) => {
+            let use_stderr = error.use_stderr();
             let _ = error.print();
-            return if error.use_stderr() {
+            return if use_stderr {
                 ExitCode::from(1)
             } else {
                 ExitCode::SUCCESS
@@ -102,61 +101,34 @@ fn main() -> ExitCode {
     let editor = editor::EnvEditor;
     let filesystem = filesystem::LocalFileSystem;
     let globber = glob::ShellGlob;
-    if let Err(error) = exiftool.ensure_available() {
-        eprintln!("pg: {error}");
+    let mut output = output::CliOutput::new(std::io::stdout().lock(), std::io::stderr().lock());
+    if !usecase::ensure_available(&exiftool, &mut output) {
         return ExitCode::from(1);
     }
 
-    let mut failed = false;
-    match cli.command {
-        Command::Export { force, targets } => {
-            let mut logger = logger::CliLogger::new(std::io::stderr());
-            for image in expand_all(&targets, &globber) {
-                report(
-                    image.display(),
-                    usecase::export(&image, force, &exiftool, &filesystem, &mut logger),
-                    &mut failed,
-                );
-            }
-        }
+    let failed = match cli.command {
+        Command::Export { force, targets } => usecase::export_targets(
+            &targets,
+            force,
+            &exiftool,
+            &filesystem,
+            &globber,
+            &mut output,
+        ),
         Command::Show {
             display,
             verbose,
             targets,
         } => {
             let key = display.key.as_deref();
-            let expanded = expand_all(&targets, &globber);
-            let labeled = expanded.len() > 1;
-            let mut printed = false;
-            for target in expanded {
-                let result = usecase::show(
-                    &target,
-                    display.all,
-                    display.basic,
-                    verbose,
-                    key,
-                    &exiftool,
-                    &filesystem,
-                );
-                match result {
-                    Ok(text) => {
-                        if printed {
-                            println!();
-                        }
-                        if labeled {
-                            println!("== {} ==", target.display());
-                        }
-                        if !text.is_empty() {
-                            println!("{text}");
-                        }
-                        printed = true;
-                    }
-                    Err(error) => {
-                        eprintln!("{}: error: {error}", target.display());
-                        failed = true;
-                    }
-                }
-            }
+            usecase::show_targets(
+                &targets,
+                usecase::ShowOptions::new(display.all, display.basic, verbose, key),
+                &exiftool,
+                &filesystem,
+                &globber,
+                &mut output,
+            )
         }
         Command::Set {
             property,
@@ -164,26 +136,23 @@ fn main() -> ExitCode {
             value,
         } => {
             let key = property.key.as_deref().unwrap_or(usecase::DEFAULT_COMMENT);
-            report_silently(
-                &target,
-                usecase::set(target.as_ref(), key, &value, &exiftool, &filesystem),
-                &mut failed,
-            );
+            usecase::set_target(
+                target.as_ref(),
+                key,
+                &value,
+                &exiftool,
+                &filesystem,
+                &mut output,
+            )
         }
         Command::Clear { property, target } => {
             let key = property.key.as_deref().unwrap_or(usecase::DEFAULT_COMMENT);
-            report_silently(
-                &target,
-                usecase::clear(target.as_ref(), key, &exiftool, &filesystem),
-                &mut failed,
-            );
+            usecase::clear_target(target.as_ref(), key, &exiftool, &filesystem, &mut output)
         }
-        Command::Edit { target } => report_silently(
-            &target,
-            usecase::edit(target.as_ref(), &editor, &filesystem),
-            &mut failed,
-        ),
-    }
+        Command::Edit { target } => {
+            usecase::edit_target(target.as_ref(), &editor, &filesystem, &mut output)
+        }
+    };
     if failed {
         ExitCode::from(2)
     } else {
@@ -191,66 +160,11 @@ fn main() -> ExitCode {
     }
 }
 
-fn expand_all(patterns: &[String], globber: &impl GlobExpander) -> Vec<PathBuf> {
-    patterns
-        .iter()
-        .flat_map(|pattern| globber.expand(pattern))
-        .collect()
-}
-
-fn report<T: std::fmt::Display>(
-    target: impl std::fmt::Display,
-    result: Result<T, String>,
-    failed: &mut bool,
-) {
-    match result {
-        Ok(message) => println!("{target}: {message}"),
-        Err(error) => {
-            eprintln!("{target}: error: {error}");
-            *failed = true;
-        }
-    }
-}
-
-fn report_silently<T>(
-    target: impl std::fmt::Display,
-    result: Result<T, String>,
-    failed: &mut bool,
-) {
-    if let Err(error) = result {
-        eprintln!("{target}: error: {error}");
-        *failed = true;
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Command, expand_all};
-    use crate::ports::GlobExpander;
+    use super::{Cli, Command};
     use clap::{Parser, error::ErrorKind};
     use rstest::rstest;
-    use std::path::PathBuf;
-
-    struct FakeGlob;
-
-    impl GlobExpander for FakeGlob {
-        fn expand(&self, pattern: &str) -> Vec<PathBuf> {
-            match pattern {
-                "*.jpg" => vec![PathBuf::from("a.jpg"), PathBuf::from("b.jpg")],
-                "*.none" => vec![],
-                other => vec![PathBuf::from(other)],
-            }
-        }
-    }
-
-    #[test]
-    fn expand_all_flattens_expansions_in_order() {
-        let patterns = ["x.nef", "*.jpg", "*.none", "y.nef"].map(String::from);
-        assert_eq!(
-            expand_all(&patterns, &FakeGlob),
-            ["x.nef", "a.jpg", "b.jpg", "y.nef"].map(PathBuf::from)
-        );
-    }
 
     fn parse(args: &[&str]) -> Command {
         Cli::try_parse_from(args).unwrap().command

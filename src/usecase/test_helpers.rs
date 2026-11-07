@@ -110,6 +110,7 @@ impl FileSystem for TestFileSystem {
 #[derive(Default)]
 pub(super) struct TestSidecarStore {
     pub(super) filesystem: TestFileSystem,
+    pub(super) ensure_error: Option<String>,
     pub(super) export_error: Option<String>,
     pub(super) export_creates_file: bool,
     pub(super) read_error: Option<String>,
@@ -130,7 +131,7 @@ pub(super) enum StoreCall {
 
 impl SidecarStore for TestSidecarStore {
     fn ensure_available(&self) -> Result<(), String> {
-        Ok(())
+        self.ensure_error.clone().map_or(Ok(()), Err)
     }
 
     fn export_to(&self, image: &Path, sidecar: &Path) -> Result<(), String> {
