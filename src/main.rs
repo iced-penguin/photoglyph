@@ -1,9 +1,11 @@
 mod adapters;
+mod cli;
 mod ports;
 mod usecase;
 
-use adapters::{editor, exiftool, filesystem, glob, logger};
+use adapters::{editor, exiftool, filesystem, glob};
 use clap::{Args, Parser, Subcommand};
+use cli::output::Output;
 use ports::{GlobExpander, SidecarStore};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -87,11 +89,11 @@ struct PropertyOption {
 }
 
 fn main() -> ExitCode {
+    let mut output = Output::new(std::io::stdout().lock(), std::io::stderr().lock());
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(error) => {
-            let _ = error.print();
-            return if error.use_stderr() {
+            return if output.clap_error(error) {
                 ExitCode::from(1)
             } else {
                 ExitCode::SUCCESS
@@ -103,20 +105,15 @@ fn main() -> ExitCode {
     let filesystem = filesystem::LocalFileSystem;
     let globber = glob::ShellGlob;
     if let Err(error) = exiftool.ensure_available() {
-        eprintln!("pg: {error}");
+        output.fatal(format!("pg: {error}"));
         return ExitCode::from(1);
     }
 
-    let mut failed = false;
     match cli.command {
         Command::Export { force, targets } => {
-            let mut logger = logger::CliLogger::new(std::io::stderr());
             for image in expand_all(&targets, &globber) {
-                report(
-                    image.display(),
-                    usecase::export(&image, force, &exiftool, &filesystem, &mut logger),
-                    &mut failed,
-                );
+                let result = usecase::export(&image, force, &exiftool, &filesystem, &mut output);
+                output.report(image.display(), result);
             }
         }
         Command::Show {
@@ -126,8 +123,7 @@ fn main() -> ExitCode {
         } => {
             let key = display.key.as_deref();
             let expanded = expand_all(&targets, &globber);
-            let labeled = expanded.len() > 1;
-            let mut printed = false;
+            output.begin_show(expanded.len());
             for target in expanded {
                 let result = usecase::show(
                     &target,
@@ -139,22 +135,8 @@ fn main() -> ExitCode {
                     &filesystem,
                 );
                 match result {
-                    Ok(text) => {
-                        if printed {
-                            println!();
-                        }
-                        if labeled {
-                            println!("== {} ==", target.display());
-                        }
-                        if !text.is_empty() {
-                            println!("{text}");
-                        }
-                        printed = true;
-                    }
-                    Err(error) => {
-                        eprintln!("{}: error: {error}", target.display());
-                        failed = true;
-                    }
+                    Ok(text) => output.show(&target, &text),
+                    Err(error) => output.error(target.display(), error),
                 }
             }
         }
@@ -164,27 +146,20 @@ fn main() -> ExitCode {
             value,
         } => {
             let key = property.key.as_deref().unwrap_or(usecase::DEFAULT_COMMENT);
-            report_silently(
-                &target,
-                usecase::set(target.as_ref(), key, &value, &exiftool, &filesystem),
-                &mut failed,
-            );
+            let result = usecase::set(target.as_ref(), key, &value, &exiftool, &filesystem);
+            output.report_silently(&target, result);
         }
         Command::Clear { property, target } => {
             let key = property.key.as_deref().unwrap_or(usecase::DEFAULT_COMMENT);
-            report_silently(
-                &target,
-                usecase::clear(target.as_ref(), key, &exiftool, &filesystem),
-                &mut failed,
-            );
+            let result = usecase::clear(target.as_ref(), key, &exiftool, &filesystem);
+            output.report_silently(&target, result);
         }
-        Command::Edit { target } => report_silently(
-            &target,
-            usecase::edit(target.as_ref(), &editor, &filesystem),
-            &mut failed,
-        ),
+        Command::Edit { target } => {
+            let result = usecase::edit(target.as_ref(), &editor, &filesystem);
+            output.report_silently(&target, result);
+        }
     }
-    if failed {
+    if output.failed() {
         ExitCode::from(2)
     } else {
         ExitCode::SUCCESS
@@ -196,31 +171,6 @@ fn expand_all(patterns: &[String], globber: &impl GlobExpander) -> Vec<PathBuf> 
         .iter()
         .flat_map(|pattern| globber.expand(pattern))
         .collect()
-}
-
-fn report<T: std::fmt::Display>(
-    target: impl std::fmt::Display,
-    result: Result<T, String>,
-    failed: &mut bool,
-) {
-    match result {
-        Ok(message) => println!("{target}: {message}"),
-        Err(error) => {
-            eprintln!("{target}: error: {error}");
-            *failed = true;
-        }
-    }
-}
-
-fn report_silently<T>(
-    target: impl std::fmt::Display,
-    result: Result<T, String>,
-    failed: &mut bool,
-) {
-    if let Err(error) = result {
-        eprintln!("{target}: error: {error}");
-        *failed = true;
-    }
 }
 
 #[cfg(test)]
