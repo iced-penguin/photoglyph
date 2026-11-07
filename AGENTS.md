@@ -10,32 +10,35 @@ Guidance for AI coding agents working in this repository. For human-oriented set
 
 Dependencies point inward: `main` -> `usecase` -> `ports` <- `adapters`.
 
-- [`src/main.rs`](src/main.rs) defines the clap CLI, wires implementations into use cases, and handles output and exit codes.
-- [`src/usecase.rs`](src/usecase.rs) contains business logic (`export`, `show`, `set`, `clear`, `edit`) and depends only on port traits.
-- [`src/ports/`](src/ports/) defines the interfaces use cases need: `SidecarStore` (and its `Selection` type), `FileSystem`, `GlobExpander`, and `Editor`.
-- [`src/adapters/`](src/adapters/) implements the external capabilities: ExifTool-backed sidecar storage, `std::fs`-backed filesystem operations, CLI glob expansion, and the `$VISUAL`/`$EDITOR`-backed implementation of `Editor`.
+- [`src/main.rs`](src/main.rs) defines the clap CLI, wires implementations into use cases, routes commands, and maps results to exit codes.
+- [`src/usecase/`](src/usecase/) contains business logic (`export`, `show`, `set`, `clear`, `edit`) and command orchestration, depending only on port traits.
+- [`src/ports/`](src/ports/) defines the interfaces use cases need: `SidecarStore` (and its `Selection` type), `FileSystem`, `GlobExpander`, `Editor`, `Logger`, and `Output`.
+- [`src/adapters/`](src/adapters/) implements the external capabilities: ExifTool-backed sidecar storage, `std::fs`-backed filesystem operations, CLI glob expansion, the `$VISUAL`/`$EDITOR`-backed implementation of `Editor`, and terminal output through `CliOutput`.
 
 Rules:
 
-- Put new behavior in `usecase.rs`. Keep `main.rs` limited to argument parsing, wiring, and reporting.
+- Put command orchestration and application behavior in the use-case layer. Keep `main.rs` limited to argument parsing, wiring, and command routing; use cases report results through the `Output` port.
 - When a use case needs a new external capability, add a method to the appropriate trait in `ports/` and implement it in `adapters/`. Do not call `std::fs` or `Command` directly from use-case logic.
 - Errors are returned as `Result<_, String>` with user-readable messages (current convention; follow it unless asked to change it).
 
 ## Commands
 
-Run all three before declaring work done. They must pass with no warnings.
+Run all four before declaring work done. They must pass with no warnings.
 
 ```sh
 cargo format
 cargo lint
 cargo test
+cargo coverage
 ```
 
 ## Testing
 
-- Every behavior change or bug fix needs a test. Add tests in a `#[cfg(test)] mod tests` at the bottom of the relevant file.
-- Test use cases with fake `SidecarStore` / `FileSystem` implementations (see `usecase.rs` tests). Tests must not require ExifTool to be installed and must not call it.
-- Use temporary directories for filesystem tests; never write to or modify files in `sample/`.
+- Add focused tests for behavior changes and bug fixes. Keep unit tests near the code they exercise in a `#[cfg(test)]` module; test observable behavior and important success, failure, and boundary cases.
+- Test use-case policy and orchestration through fake port implementations. These tests must be deterministic and must not depend on ExifTool, the user's environment, or external services.
+- Test adapters at their boundaries. Prefer injected dependencies and in-memory inputs or outputs when available. When verifying external behavior directly is necessary, isolate the test environment from user data and unrelated files.
+- The CLI output adapter is an intentional coverage exception to the general exclusion of environment-dependent adapters: it is deterministic, accepts injected `Write` destinations, and implements user-visible stdout/stderr formatting. Treat that formatting as a CLI contract and maintain 100% line coverage for it.
+- `cargo coverage` enforces 100% line coverage for included source files. Keep environment-dependent adapter implementations and test support excluded; include deterministic behavior whose branches can be exercised with fakes or in-memory dependencies. Update the coverage configuration when the boundary changes, rather than weakening the threshold.
 
 ## Boundaries
 

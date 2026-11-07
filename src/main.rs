@@ -1,13 +1,9 @@
 mod adapters;
-mod cli;
 mod ports;
 mod usecase;
 
-use adapters::{editor, exiftool, filesystem, glob};
+use adapters::{editor, exiftool, filesystem, glob, output};
 use clap::{Args, Parser, Subcommand};
-use cli::output::Output;
-use ports::{GlobExpander, SidecarStore};
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 /// Export and edit XMP sidecars without writing metadata into image files.
@@ -89,11 +85,12 @@ struct PropertyOption {
 }
 
 fn main() -> ExitCode {
-    let mut output = Output::new(std::io::stdout().lock(), std::io::stderr().lock());
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(error) => {
-            return if output.clap_error(error) {
+            let use_stderr = error.use_stderr();
+            let _ = error.print();
+            return if use_stderr {
                 ExitCode::from(1)
             } else {
                 ExitCode::SUCCESS
@@ -104,41 +101,34 @@ fn main() -> ExitCode {
     let editor = editor::EnvEditor;
     let filesystem = filesystem::LocalFileSystem;
     let globber = glob::ShellGlob;
-    if let Err(error) = exiftool.ensure_available() {
-        output.fatal(format!("pg: {error}"));
+    let mut output = output::CliOutput::new(std::io::stdout().lock(), std::io::stderr().lock());
+    if !usecase::ensure_available(&exiftool, &mut output) {
         return ExitCode::from(1);
     }
 
-    match cli.command {
-        Command::Export { force, targets } => {
-            for image in expand_all(&targets, &globber) {
-                let result = usecase::export(&image, force, &exiftool, &filesystem, &mut output);
-                output.report(image.display(), result);
-            }
-        }
+    let failed = match cli.command {
+        Command::Export { force, targets } => usecase::export_targets(
+            &targets,
+            force,
+            &exiftool,
+            &filesystem,
+            &globber,
+            &mut output,
+        ),
         Command::Show {
             display,
             verbose,
             targets,
         } => {
             let key = display.key.as_deref();
-            let expanded = expand_all(&targets, &globber);
-            output.begin_show(expanded.len());
-            for target in expanded {
-                let result = usecase::show(
-                    &target,
-                    display.all,
-                    display.basic,
-                    verbose,
-                    key,
-                    &exiftool,
-                    &filesystem,
-                );
-                match result {
-                    Ok(text) => output.show(&target, &text),
-                    Err(error) => output.error(target.display(), error),
-                }
-            }
+            usecase::show_targets(
+                &targets,
+                usecase::ShowOptions::new(display.all, display.basic, verbose, key),
+                &exiftool,
+                &filesystem,
+                &globber,
+                &mut output,
+            )
         }
         Command::Set {
             property,
@@ -146,61 +136,35 @@ fn main() -> ExitCode {
             value,
         } => {
             let key = property.key.as_deref().unwrap_or(usecase::DEFAULT_COMMENT);
-            let result = usecase::set(target.as_ref(), key, &value, &exiftool, &filesystem);
-            output.report_silently(&target, result);
+            usecase::set_target(
+                target.as_ref(),
+                key,
+                &value,
+                &exiftool,
+                &filesystem,
+                &mut output,
+            )
         }
         Command::Clear { property, target } => {
             let key = property.key.as_deref().unwrap_or(usecase::DEFAULT_COMMENT);
-            let result = usecase::clear(target.as_ref(), key, &exiftool, &filesystem);
-            output.report_silently(&target, result);
+            usecase::clear_target(target.as_ref(), key, &exiftool, &filesystem, &mut output)
         }
         Command::Edit { target } => {
-            let result = usecase::edit(target.as_ref(), &editor, &filesystem);
-            output.report_silently(&target, result);
+            usecase::edit_target(target.as_ref(), &editor, &filesystem, &mut output)
         }
-    }
-    if output.failed() {
+    };
+    if failed {
         ExitCode::from(2)
     } else {
         ExitCode::SUCCESS
     }
 }
 
-fn expand_all(patterns: &[String], globber: &impl GlobExpander) -> Vec<PathBuf> {
-    patterns
-        .iter()
-        .flat_map(|pattern| globber.expand(pattern))
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Command, expand_all};
-    use crate::ports::GlobExpander;
+    use super::{Cli, Command};
     use clap::{Parser, error::ErrorKind};
     use rstest::rstest;
-    use std::path::PathBuf;
-
-    struct FakeGlob;
-
-    impl GlobExpander for FakeGlob {
-        fn expand(&self, pattern: &str) -> Vec<PathBuf> {
-            match pattern {
-                "*.jpg" => vec![PathBuf::from("a.jpg"), PathBuf::from("b.jpg")],
-                "*.none" => vec![],
-                other => vec![PathBuf::from(other)],
-            }
-        }
-    }
-
-    #[test]
-    fn expand_all_flattens_expansions_in_order() {
-        let patterns = ["x.nef", "*.jpg", "*.none", "y.nef"].map(String::from);
-        assert_eq!(
-            expand_all(&patterns, &FakeGlob),
-            ["x.nef", "a.jpg", "b.jpg", "y.nef"].map(PathBuf::from)
-        );
-    }
 
     fn parse(args: &[&str]) -> Command {
         Cli::try_parse_from(args).unwrap().command
