@@ -23,7 +23,10 @@ impl<'a> ShowOptions<'a> {
     }
 }
 
-/// Checks that the metadata tool is available and reports a fatal error if not.
+/// Checks metadata-tool availability before a command runs.
+///
+/// Reports a fatal error through `output` and returns `false` when the tool is
+/// unavailable; otherwise returns `true` without producing output.
 pub fn ensure_available(tool: &impl SidecarStore, output: &mut impl Output) -> bool {
     match tool.ensure_available() {
         Ok(()) => true,
@@ -35,6 +38,9 @@ pub fn ensure_available(tool: &impl SidecarStore, output: &mut impl Output) -> b
 }
 
 /// Expands export patterns, exports every match, and reports each result.
+///
+/// Returns `true` if at least one target fails. When `force` is set, existing
+/// sidecars may be replaced as part of the export.
 pub fn export_targets(
     patterns: &[String],
     force: bool,
@@ -57,6 +63,9 @@ pub fn export_targets(
 }
 
 /// Expands show patterns, displays each result, and continues after errors.
+///
+/// Returns `true` if at least one target fails; failures are reported through
+/// `output` while processing continues for the remaining targets.
 pub fn show_targets(
     patterns: &[String],
     options: ShowOptions<'_>,
@@ -88,7 +97,10 @@ pub fn show_targets(
     failed
 }
 
-/// Sets a property and reports any error through the output port.
+/// Sets a property on one sidecar and reports any error through the output port.
+///
+/// Returns `true` if the operation fails. The target must resolve to an
+/// existing XMP sidecar.
 pub fn set_target(
     target: &Path,
     key: &str,
@@ -100,7 +112,10 @@ pub fn set_target(
     report_silently(target, set(target, key, value, tool, filesystem), output)
 }
 
-/// Clears a property and reports any error through the output port.
+/// Clears a property on one sidecar and reports any error through the output port.
+///
+/// Returns `true` if the operation fails. The target must resolve to an
+/// existing XMP sidecar.
 pub fn clear_target(
     target: &Path,
     key: &str,
@@ -112,6 +127,8 @@ pub fn clear_target(
 }
 
 /// Opens a sidecar in the selected editor and reports any error.
+///
+/// Returns `true` if the target cannot be resolved or the editor fails.
 pub fn edit_target(
     target: &Path,
     editor: &impl Editor,

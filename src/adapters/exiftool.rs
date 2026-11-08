@@ -4,6 +4,10 @@ use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+/// Implements sidecar metadata operations by invoking ExifTool.
+///
+/// The default executable name is `exiftool`, resolved through the process
+/// search path.
 pub struct ExifTool {
     executable: PathBuf,
 }
