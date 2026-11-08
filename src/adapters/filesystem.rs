@@ -3,6 +3,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+/// Accesses the local filesystem for application use cases.
 #[derive(Default)]
 pub struct LocalFileSystem;
 

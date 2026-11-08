@@ -3,6 +3,7 @@ use std::path::Path;
 
 use super::shared::{resolve_xmp_target, validate_key};
 
+/// XMP description key shown or changed when no key is explicitly selected.
 pub const DEFAULT_COMMENT: &str = "XMP-dc:Description";
 pub(super) const BASIC_KEYS: &[&str] = &[
     "XMP-dc:Description",
@@ -14,6 +15,10 @@ pub(super) const BASIC_KEYS: &[&str] = &[
     "XMP-photoshop:DateCreated",
 ];
 
+/// Reads selected properties from an existing sidecar or its resolved basename.
+///
+/// An explicit `key` takes precedence over `basic`; `all` reads every XMP
+/// property. Returns the formatted properties or an error.
 pub fn show(
     target: &Path,
     all: bool,

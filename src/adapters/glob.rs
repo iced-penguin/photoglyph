@@ -2,6 +2,7 @@ use crate::ports::GlobExpander;
 use glob::{MatchOptions, glob_with};
 use std::path::{Path, PathBuf};
 
+/// Expands shell-style patterns using the local filesystem.
 #[derive(Default)]
 pub struct ShellGlob;
 
@@ -11,7 +12,10 @@ impl GlobExpander for ShellGlob {
     }
 }
 
-/// Expands a shell-style pattern; a pattern without metacharacters is returned as is.
+/// Expands a shell-style pattern to matching files.
+///
+/// A pattern without glob metacharacters, a pattern naming an existing file, or
+/// a malformed pattern is returned unchanged as a single path.
 pub fn expand(pattern: &str) -> Vec<PathBuf> {
     if !pattern.contains(['*', '?', '[']) || Path::new(pattern).is_file() {
         return vec![PathBuf::from(pattern)];

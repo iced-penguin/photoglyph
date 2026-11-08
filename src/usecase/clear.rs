@@ -3,6 +3,10 @@ use std::path::Path;
 
 use super::shared::{resolve_xmp_target, validate_key};
 
+/// Clears an XMP property on an existing sidecar or its resolved basename.
+///
+/// Rejects invalid keys before writing and returns whether the property was
+/// cleared or was already empty.
 pub fn clear(
     target: &Path,
     key: &str,

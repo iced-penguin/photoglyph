@@ -3,6 +3,13 @@ use std::path::{Path, PathBuf};
 
 use super::shared::{canonical, is_image};
 
+/// Exports image metadata to its companion XMP sidecar.
+///
+/// The image must be an existing supported image file. An existing sidecar is
+/// replaced only when `force` is enabled; basename collisions are rejected
+/// unless forced, in which case a warning is reported.
+///
+/// Returns a user-facing success message or an error.
 pub fn export(
     image: &Path,
     force: bool,

@@ -3,6 +3,9 @@ use std::path::Path;
 
 use super::shared::resolve_xmp_target;
 
+/// Opens an existing sidecar or its resolved basename in the configured editor.
+///
+/// Returns an error if the target cannot be resolved or the editor fails.
 pub fn edit(
     target: &Path,
     editor: &impl Editor,

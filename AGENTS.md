@@ -21,6 +21,12 @@ Rules:
 - When a use case needs a new external capability, add a method to the appropriate trait in `ports/` and implement it in `adapters/`. Do not call `std::fs` or `Command` directly from use-case logic.
 - Errors are returned as `Result<_, String>` with user-readable messages (current convention; follow it unless asked to change it).
 
+## Public API documentation
+
+- Add Rust documentation comments to every public function, method, trait, and type in the `ports` layer. Explain the capability's purpose and any important inputs, results, preconditions, or side effects.
+- Add documentation comments to public use-case functions in the orchestration layer. Describe their role in command behavior, relevant preconditions, reported results, and side effects.
+- Document other public APIs, including adapter types and functions, so contributors can understand their purpose in the architecture without reading their implementation.
+
 ## Commands
 
 Run all four before declaring work done. They must pass with no warnings.

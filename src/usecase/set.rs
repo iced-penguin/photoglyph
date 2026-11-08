@@ -3,6 +3,10 @@ use std::path::Path;
 
 use super::shared::{resolve_xmp_target, validate_key};
 
+/// Sets an XMP property on an existing sidecar or its resolved basename.
+///
+/// Rejects invalid keys before writing and returns whether the property was
+/// updated or already had the requested value.
 pub fn set(
     target: &Path,
     key: &str,
