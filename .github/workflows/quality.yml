@@ -17,7 +17,7 @@ jobs:
           components: rustfmt
       - run: cargo format-check
 
-  clippy:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +27,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo lint
+      - run: cargo lint-docs
 
   test:
     runs-on: ubuntu-latest

@@ -2,4 +2,5 @@
 format = "fmt --all"
 format-check = "fmt --all -- --check"
 lint = "clippy --all-targets -- -D warnings"
+lint-docs = "clippy --all-targets -- -W missing_docs"
 coverage = "llvm-cov --all-targets --ignore-filename-regex (^|/)src/(adapters/(editor|exiftool|filesystem|glob)\\.rs|main\\.rs|usecase/test_helpers\\.rs)$ --fail-uncovered-lines 0"
