@@ -34,11 +34,11 @@ Run all four before declaring work done. They must pass with no warnings.
 ```sh
 cargo format
 cargo lint
+cargo lint-docs
+
 cargo test
 cargo coverage
 ```
-
-## Testing
 
 - Add focused tests for behavior changes and bug fixes. Keep unit tests near the code they exercise in a `#[cfg(test)]` module; test observable behavior and important success, failure, and boundary cases.
 - Test use-case policy and orchestration through fake port implementations. These tests must be deterministic and must not depend on ExifTool, the user's environment, or external services.
@@ -62,7 +62,7 @@ cargo coverage
 - Keep pull requests small and focused on one purpose, and describe what changed and how it was verified.
 - Use `.github/PULL_REQUEST_TEMPLATE.md` for every pull request. Preserve its headings, comments, checklist items, and ordering.
 - Stage only files related to the assigned task; inspect the staged diff before committing.
-- Never commit directly to `main`. GitHub branch protection and required CI checks are the authoritative controls for changes merged to `main`; the `.githooks/pre-commit` hook is an additional guard, not a replacement. It rejects commits on `main` and runs `cargo format-check` and `cargo lint` when Rust files change; do not bypass it with `--no-verify`.
+- Never commit directly to `main`. GitHub branch protection and required CI checks are the authoritative controls for changes merged to `main`; the `.githooks/pre-commit` hook is an additional guard, not a replacement. It rejects commits on `main` and runs `cargo format-check`, `cargo lint`, `cargo lint-docs` when Rust files change; do not bypass it with `--no-verify`.
 
 ## Copilot agent workflow
 

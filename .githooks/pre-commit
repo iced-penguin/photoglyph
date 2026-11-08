@@ -10,4 +10,5 @@ fi
 if git diff --cached --name-only | grep -E '\.rs$|^Cargo\.(toml|lock)$|^rust-toolchain\.toml$|^\.cargo/' >/dev/null; then
   cargo format-check
   cargo lint
+  cargo lint-docs
 fi

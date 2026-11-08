@@ -4,7 +4,7 @@
 
 - Install Rust 1.99.1 with [rustup](https://rustup.rs/); this is the toolchain used for development and CI.
 - Install ExifTool (on macOS: `brew install exiftool`).
-- Enable the repository's Git hooks once per clone: `git config core.hooksPath .githooks`. The pre-commit hook rejects commits on `main` and runs `cargo format-check` and `cargo lint` when Rust files change.
+- Enable the repository's Git hooks once per clone: `git config core.hooksPath .githooks`. The pre-commit hook rejects commits on `main` and runs `cargo format-check`, `cargo lint`, `cargo lint-docs` when Rust files change.
 
 To run coverage, install the required Rust component and Cargo subcommand:
 
@@ -36,6 +36,8 @@ cargo test
 ```sh
 cargo format
 cargo lint
+cargo lint-docs
+
 cargo test
 cargo coverage
 ```
