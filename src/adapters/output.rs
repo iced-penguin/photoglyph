@@ -1,8 +1,8 @@
-use crate::ports::{Logger, Output};
+use crate::ports::Output;
 use std::io::Write;
 use std::path::Path;
 
-/// Writes command output to stdout and errors or warnings to stderr.
+/// Writes command output to stdout and errors to stderr.
 pub struct CliOutput<WOut, WErr> {
     stdout: WOut,
     stderr: WErr,
@@ -61,16 +61,10 @@ impl<WOut: Write, WErr: Write> Output for CliOutput<WOut, WErr> {
     }
 }
 
-impl<WOut: Write, WErr: Write> Logger for CliOutput<WOut, WErr> {
-    fn warn(&mut self, message: &str) {
-        writeln!(self.stderr, "warning: {message}").expect("failed printing to stderr");
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::CliOutput;
-    use crate::ports::{Logger, Output};
+    use crate::ports::Output;
     use std::path::Path;
 
     #[test]
@@ -136,15 +130,5 @@ mod tests {
             stderr,
             b"two.xmp: error: update failed\npg: exiftool is unavailable\n"
         );
-    }
-
-    #[test]
-    fn writes_warnings_to_stderr() {
-        let mut output = CliOutput::new(Vec::new(), Vec::new());
-        output.warn("ambiguous basename");
-
-        let (stdout, stderr) = output.into_inner();
-        assert!(stdout.is_empty());
-        assert_eq!(stderr, b"warning: ambiguous basename\n");
     }
 }

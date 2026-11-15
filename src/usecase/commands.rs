@@ -37,10 +37,11 @@ pub fn ensure_available(tool: &impl SidecarStore, output: &mut impl Output) -> b
     }
 }
 
-/// Expands export patterns, exports every match, and reports each result.
+/// Expands export patterns, exports every supported RAW match, and reports each result.
 ///
 /// Returns `true` if at least one target fails. When `force` is set, existing
-/// sidecars may be replaced as part of the export.
+/// sidecars may be replaced as part of the export. Unsupported extensions are
+/// reported as per-target errors while processing continues.
 pub fn export_targets(
     patterns: &[String],
     force: bool,
@@ -51,7 +52,7 @@ pub fn export_targets(
 ) -> bool {
     let mut failed = false;
     for image in expand_all(patterns, globber) {
-        match export(&image, force, tool, filesystem, output) {
+        match export(&image, force, tool, filesystem) {
             Ok(message) => output.success(&image, &message),
             Err(error) => {
                 output.error(&image, &error);
@@ -160,19 +161,13 @@ mod tests {
         ShowOptions, clear_target, edit_target, ensure_available, export_targets, set_target,
         show_targets,
     };
-    use crate::ports::{GlobExpander, Logger, Output};
+    use crate::ports::{GlobExpander, Output};
     use crate::usecase::test_helpers::{TestEditor, TestFileSystem, TestSidecarStore};
     use std::path::{Path, PathBuf};
 
     #[derive(Default)]
     struct TestOutput {
         events: Vec<String>,
-    }
-
-    impl Logger for TestOutput {
-        fn warn(&mut self, message: &str) {
-            self.events.push(format!("warning:{message}"));
-        }
     }
 
     impl Output for TestOutput {
@@ -206,7 +201,7 @@ mod tests {
         fn expand(&self, pattern: &str) -> Vec<PathBuf> {
             match pattern {
                 "*.xmp" => vec![PathBuf::from("one.xmp"), PathBuf::from("two.xmp")],
-                "*.jpg" => vec![PathBuf::from("one.jpg"), PathBuf::from("two.jpg")],
+                "*.nef" => vec![PathBuf::from("one.nef"), PathBuf::from("two.nef")],
                 other => vec![PathBuf::from(other)],
             }
         }
@@ -287,8 +282,8 @@ mod tests {
     #[test]
     fn export_targets_reports_success_and_error_for_each_match() {
         let filesystem = TestFileSystem::default();
-        filesystem.add_file(Path::new("one.jpg"));
-        filesystem.add_file(Path::new("two.jpg"));
+        filesystem.add_file(Path::new("one.nef"));
+        filesystem.add_file(Path::new("two.nef"));
         let store = TestSidecarStore {
             filesystem: filesystem.clone(),
             export_creates_file: true,
@@ -297,7 +292,7 @@ mod tests {
         let mut output = TestOutput::default();
 
         assert!(export_targets(
-            &["*.jpg".into(), "unsupported.txt".into()],
+            &["*.nef".into(), "unsupported.txt".into()],
             false,
             &store,
             &filesystem,
@@ -307,41 +302,12 @@ mod tests {
         assert_eq!(
             output.events,
             [
-                "success:one.jpg:exported to one.xmp",
-                "success:two.jpg:exported to two.xmp",
-                "error:unsupported.txt:export requires a supported image path"
+                "success:one.nef:exported to one.xmp",
+                "success:two.nef:exported to two.xmp",
+                "error:unsupported.txt:export requires a supported RAW image path"
             ]
         );
-    }
-
-    #[test]
-    fn export_targets_logs_forced_basename_collisions() {
-        let filesystem = TestFileSystem::default();
-        let image = Path::new("/photos/photo.jpg");
-        filesystem.add_file(image);
-        filesystem.add_file(Path::new("/photos/photo.NEF"));
-        let store = TestSidecarStore {
-            filesystem: filesystem.clone(),
-            export_creates_file: true,
-            ..Default::default()
-        };
-        let mut output = TestOutput::default();
-
-        assert!(!export_targets(
-            &["/photos/photo.jpg".into()],
-            true,
-            &store,
-            &filesystem,
-            &TestGlob,
-            &mut output
-        ));
-        assert_eq!(
-            output.events,
-            [
-                "warning:sidecar basename is ambiguous with /photos/photo.NEF; proceeding because --force was specified",
-                "success:/photos/photo.jpg:exported to /photos/photo.xmp"
-            ]
-        );
+        assert_eq!(store.calls.borrow().len(), 2);
     }
 
     #[test]

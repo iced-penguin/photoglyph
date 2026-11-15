@@ -1,3 +1,5 @@
+//! Command-line interface for exporting and editing XMP sidecars.
+
 mod adapters;
 mod ports;
 mod usecase;
@@ -16,12 +18,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Export image metadata to a companion .xmp sidecar.
+    /// Export metadata from a supported RAW image to a companion .xmp sidecar.
     Export {
         /// Explicitly replace an existing sidecar.
         #[arg(short, long)]
         force: bool,
-        /// Image files to export; quoted glob patterns such as "*.jpg" are allowed.
+        /// RAW image files to export; supported extensions are matched case-insensitively.
+        /// Quoted glob patterns such as "*.nef" are allowed.
         #[arg(required = true, value_name = "TARGETS")]
         targets: Vec<String>,
     },
@@ -195,7 +198,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case::export(&["pg", "export", "one.jpg", "two.nef"], &["one.jpg", "two.nef"])]
+    #[case::export(&["pg", "export", "one.nef", "two.cr3"], &["one.nef", "two.cr3"])]
     #[case::show(&["pg", "show", "one.xmp", "two.xmp"], &["one.xmp", "two.xmp"])]
     fn parses_multiple_targets(#[case] args: &[&str], #[case] expected: &[&str]) {
         assert_eq!(targets_of(parse(args)), expected);

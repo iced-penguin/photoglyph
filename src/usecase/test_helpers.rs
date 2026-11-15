@@ -1,6 +1,6 @@
 use crate::ports::{Editor, FileSystem, Selection, SidecarStore};
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -11,26 +11,15 @@ pub(super) struct TestFileSystem(pub(super) Rc<RefCell<FsState>>);
 #[derive(Default)]
 pub(super) struct FsState {
     pub(super) files: HashSet<PathBuf>,
-    pub(super) directories: HashMap<PathBuf, Vec<PathBuf>>,
     pub(super) canonicalize_error: Option<ErrorKind>,
     pub(super) canonicalize_to: Option<PathBuf>,
-    pub(super) read_dir_error: Option<ErrorKind>,
     pub(super) install_error: Option<ErrorKind>,
     pub(super) create_sidecar_during_install: bool,
 }
 
 impl TestFileSystem {
     pub(super) fn add_file(&self, path: &Path) {
-        let mut state = self.0.borrow_mut();
-        if state.files.insert(path.to_path_buf())
-            && let Some(parent) = path.parent()
-        {
-            state
-                .directories
-                .entry(parent.to_path_buf())
-                .or_default()
-                .push(path.to_path_buf());
-        }
+        self.0.borrow_mut().files.insert(path.to_path_buf());
     }
 
     pub(super) fn file_count(&self) -> usize {
@@ -62,27 +51,10 @@ impl FileSystem for TestFileSystem {
         self.0.borrow().files.contains(path)
     }
 
-    fn read_dir(&self, path: &Path) -> io::Result<Vec<PathBuf>> {
-        let state = self.0.borrow();
-        if let Some(kind) = state.read_dir_error {
-            return Err(io::Error::from(kind));
-        }
-        state
-            .directories
-            .get(path)
-            .cloned()
-            .ok_or_else(|| io::Error::from(ErrorKind::NotFound))
-    }
-
     fn remove_file(&self, path: &Path) -> io::Result<()> {
         let mut state = self.0.borrow_mut();
         if !state.files.remove(path) {
             return Err(io::Error::from(ErrorKind::NotFound));
-        }
-        if let Some(parent) = path.parent()
-            && let Some(entries) = state.directories.get_mut(parent)
-        {
-            entries.retain(|entry| entry != path);
         }
         Ok(())
     }

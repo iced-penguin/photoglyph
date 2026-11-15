@@ -1,8 +1,7 @@
-use super::Logger;
 use std::path::Path;
 
 /// Presents command results and diagnostics to the user.
-pub trait Output: Logger {
+pub trait Output {
     /// Starts a show operation with the number of expanded targets.
     fn begin_show(&mut self, target_count: usize);
 

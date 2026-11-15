@@ -13,7 +13,10 @@ pub trait SidecarStore {
     /// Checks that the metadata tool is available for use.
     fn ensure_available(&self) -> Result<(), String>;
 
-    /// Exports metadata from an image into a sidecar path.
+    /// Exports metadata from an image into a sidecar path using the metadata tool.
+    ///
+    /// The caller is responsible for validating export eligibility and
+    /// protecting any existing sidecar at the destination.
     fn export_to(&self, image: &Path, sidecar: &Path) -> Result<(), String>;
 
     /// Reads selected properties and returns their formatted representation.
