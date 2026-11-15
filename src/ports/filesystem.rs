@@ -12,9 +12,6 @@ pub trait FileSystem {
     /// Returns whether a filesystem entry exists at `path`.
     fn exists(&self, path: &Path) -> bool;
 
-    /// Lists the paths of entries directly inside a directory.
-    fn read_dir(&self, path: &Path) -> io::Result<Vec<PathBuf>>;
-
     /// Removes a file.
     fn remove_file(&self, path: &Path) -> io::Result<()>;
 
